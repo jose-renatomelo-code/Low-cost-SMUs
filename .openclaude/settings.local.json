@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m py_compile main.py)",
+      "Bash(.venv/Scripts/python.exe -m py_compile main.py)",
+      "Bash(.venv/Scripts/python.exe -c \"import ast,sys; ast.parse\\(open\\(''''main.py''''\\).read\\(\\)\\); print\\(''''PARSE_OK''''\\)\")",
+      "Bash(.venv/Scripts/python.exe -c \"import importlib.util,sys; spec=importlib.util.spec_from_file_location\\(''''m'''',''''main.py''''\\); m=importlib.util.module_from_spec\\(spec\\); spec.loader.exec_module\\(m\\); print\\(''''IMPORT_OK; INSTRUMENT='''',m.INSTRUMENT,''''ADALM1000_SR='''',m.ADALM1000_SR,''''V_MIN_V='''',m.V_MIN_V\\)\")",
+      "Bash(.venv/Scripts/python.exe -m py_compile adalm_continous.py)",
+      "Bash(python -c \"import dwfpy; print\\(dwfpy.__file__\\)\")",
+      "Bash(.venv/Scripts/python -c \"import dwfpy; print\\(dwfpy.__file__\\)\")",
+      "Bash(.venv/Scripts/python -c \"import dwfpy, inspect; print\\([a for a in dir\\(dwfpy.Device\\) if not a.startswith\\(''''_''''\\)]\\)\")",
+      "Bash(.venv/Scripts/python -c \":*)",
+      "Bash(timeout 30 .venv/Scripts/python main.py)",
+      "Bash(rm -f output/ad3_scope_rate_sweep.csv output/ad3_scope_rate_sweep.png report.md)",
+      "Bash(timeout 130 .venv/Scripts/python main.py)",
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(tail -n:*)",
+      "Bash(.venv/Scripts/python -:*)"
+    ]
+  }
+}
