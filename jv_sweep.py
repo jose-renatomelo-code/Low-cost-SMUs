@@ -2,6 +2,7 @@ from drivers import ADALM1000_Driver, AD3_Driver, Keithley2450_Driver, USMU_Driv
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
+import time
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # INSTRUMENT SELECTION AND OUTPUT PATH  –  KEITHLEY / USMU / AD3 / ADALM1000
@@ -17,6 +18,7 @@ N_LOOPS = 2
 SWEEP_MODE = "rev/fwd"
 P_in = 100 # mW/cm²
 SAMPLE_AREA = 5 # cm²
+N_POINTS = 121
 V_START = 1.1 if SWEEP_MODE == "rev/fwd" else 0.0
 V_STOP = 0.0 if SWEEP_MODE == "rev/fwd" else 1.1
 
@@ -53,9 +55,15 @@ def main():
 
     driver.connect()
     voc_now = preconditioning_device() if SWEEP_MODE == "rev/fwd" else None
-    
+    t0 = time.perf_counter()
+    delta_V = np.abs(V_STOP - V_START)
     try:
         for loop in range(N_LOOPS):
+            for sr in SCAN_RATES:
+                t_dwell = delta_V / (sr * N_POINTS)
+                while (time.perf_counter() - t0) < t_dwell: 
+                    pass
+
 
 
 
@@ -63,6 +71,10 @@ def main():
 
     except Exception as e:
         print(f"Error while doing JV sweeping: {e}")
+    
+    finally:
+        driver.disconnect()
+        print("Succesfully JV sweeping!")
 
 if __name__ == "__main__":
     main()
