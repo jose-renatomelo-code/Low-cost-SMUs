@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # INSTRUMENT SELECTION  –  set INSTRUMENT to "USMU", "KEITHLEY" or "ADALM1000"
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-INSTRUMENT = "ADALM1000"           # "USMU" | "KEITHLEY" | "ADALM1000" | "AD3"
+INSTRUMENT = "KEITHLEY"           # "USMU" | "KEITHLEY" | "ADALM1000" | "AD3"
 
 # uSMU connection
 USMU_PORT         = "COM3"

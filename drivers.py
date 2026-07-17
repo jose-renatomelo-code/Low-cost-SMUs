@@ -159,7 +159,7 @@ class USMU_Driver:
         self._dev = USMU(port=port, baudrate=baudrate, command_delay=command_delay)
 
     # -- lifecycle ------------------------------------------------------------
-    def connect(self):
+    def connect(self, curr_sour=False):
         idn = self._dev.read_idn()
         print(f"  Connected to uSMU: {idn}")
         self._dev.enable_output()
@@ -194,21 +194,38 @@ class Keithley2450_Driver:
         self._dev.timeout = 5000   # ms
 
     # -- lifecycle ------------------------------------------------------------
-    def connect(self):
+    def connect(self, curr_sour=False):
         self._dev.write("*RST")
         self._dev.write("*CLS")
 
-        # Source voltage, measure current
-        self._dev.write("SOUR:FUNC VOLT")
-        self._dev.write("SENS:FUNC \"CURR\"")
+        if curr_sour:
+            # Source current, measure voltage
+            self._dev.write("SOUR:FUNC \"CURR\"")
+            self._dev.write("SENS:FUNC VOLT")
+
+        else:
+            # Source voltage, measure current
+            self._dev.write("SOUR:FUNC VOLT")
+            self._dev.write("SENS:FUNC \"CURR\"")
+
         self._dev.write(f"SOUR:VOLT:RANG {max(abs(V_MAX_V), abs(V_MIN_V))}")
         self._dev.write(f"SOUR:VOLT:ILIM {CURRENT_LIMIT_A}")
         self._dev.write("SENS:CURR:RANG:AUTO ON")
-
         self._dev.write("OUTP ON")
 
         idn = self._dev.query("*IDN?").strip()
         print(f"  Connected to Keithley: {idn}")
+
+    def set_source_mode(self, curr_sour: bool):
+        """Switch the Keithley between current-source and voltage-source mode
+        WITHOUT sending *RST (which would wipe integration/NPLC settings)."""
+        if curr_sour:
+            self._dev.write("SOUR:FUNC CURR")
+            self._dev.write("SENS:FUNC VOLT")
+        else:
+            self._dev.write("SOUR:FUNC VOLT")
+            self._dev.write("SENS:FUNC \"CURR\"")
+        self._dev.write("OUTP ON")
 
     def disconnect(self):
         self._dev.write("SOUR:VOLT 0")
@@ -231,6 +248,13 @@ class Keithley2450_Driver:
         # Read voltage and current in one query
         raw_i = self._dev.query("MEAS:CURR?").strip()
         return voltage_v, float(raw_i)
+
+    def set_current_and_measure(self, current_A: float) -> tuple[float, float]:
+        """Apply voltage setpoint, trigger measurement, return (V, A)."""
+        self._dev.write(f"SOUR:CURR {current_A}")
+        # Read voltage and current in one query
+        raw_V = self._dev.query("MEAS:VOLT?").strip()
+        return float(raw_V), current_A
 
 class AD3_Driver:
 

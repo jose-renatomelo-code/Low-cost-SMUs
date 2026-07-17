@@ -15,7 +15,16 @@
       "Bash(timeout 130 .venv/Scripts/python main.py)",
       "Bash(echo \"EXIT=$?\")",
       "Bash(tail -n:*)",
-      "Bash(.venv/Scripts/python -:*)"
+      "Bash(.venv/Scripts/python -:*)",
+      "Bash(.venv/Scripts/python -m py_compile jv_sweep.py)",
+      "Bash(.venv/Scripts/python -c \"import matplotlib, numpy; print\\(''''mpl'''',matplotlib.__version__,''''np'''',numpy.__version__\\)\")",
+      "Bash(.venv/Scripts/pip list:*)",
+      "Bash(.venv/Scripts/pip install:*)",
+      "Bash(.venv/Scripts/python /tmp/test_out.py)",
+      "Bash(.venv/Scripts/python _test_out.py)",
+      "Bash(.venv/Scripts/python -m py_compile jv_sweep.py drivers.py)",
+      "Bash(.venv/Scripts/python -c \"\nimport jv_sweep as J, inspect\nsrc = inspect.getsource\\(J.preconditioning_device\\)\nassert 'driver.connect\\(curr_sour=True\\)' not in src, 'preconditioning still re-connects!'\nassert 'set_source_mode' in src, 'preconditioning missing set_source_mode'\nsrc2 = inspect.getsource\\(J.main\\)\nassert src2.count\\('connect\\(curr_sour'\\) == 1, 'main still double-connects'\nprint\\('CHECKS PASSED'\\)\n\")",
+      "Bash(.venv/Scripts/python _test_timing.py)"
     ]
   }
 }
