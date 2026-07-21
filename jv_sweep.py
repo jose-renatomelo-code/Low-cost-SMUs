@@ -8,7 +8,7 @@ import time
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # INSTRUMENT SELECTION AND OUTPUT PATH  –  KEITHLEY / USMU / ADALM1000 / AD3
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-INSTRUMENT = "USMU"   # "USMU" | "KEITHLEY" | "ADALM1000" | "AD3"
+INSTRUMENT = "ADALM1000"   # "USMU" | "KEITHLEY" | "ADALM1000" | "AD3"
 OUTPUT_DIR  = Path("output JV")
 OUTPUT_DIR.mkdir(exist_ok=True)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -79,10 +79,17 @@ def preconditioning_device(driver):
     if hasattr(driver, "set_source_mode"):
         if INSTRUMENT == "KEITHLEY":
             driver.set_source_mode(curr_sour=True)
+    # Re-baseline the current offset with the DUT connected (ADALM1000 only;
+    # other drivers ignore it). Must happen before the sweep starts.
+    if hasattr(driver, "calibrate_offset"):
+        driver.calibrate_offset()
     print("Starting the preconditioning...")
     while not steady_state:
         try:
-            voc_read, c_read = driver.set_current_and_measure(0)
+            if INSTRUMENT != "USMU":
+                voc_read, c_read = driver.set_current_and_measure(0)
+            else:
+                voc_read, c_read = driver.set_voltage_and_measure(1)
             last_voc_buffer.append(voc_read)
             all_voc.append(voc_read)
             t_now = time.perf_counter() - t0
@@ -325,16 +332,14 @@ def main():
     smu_dir.mkdir(parents=True, exist_ok=True)
 
     # 1) Connect in CURRENT-SOURCE mode (set Idrive=0, monitor Voc)
-    if INSTRUMENT == "KEITHLEY":
-        driver.connect(curr_sour=True)
+    driver.connect(curr_sour=True)
 
     # 2) Pre-conditioning: hold 0 A and watch Voc until it is stable.
     #    NB: the returned Voc MUST NOT redefine V_START/V_STOP (those are the
     #    dedicated sweep bounds, 0..1.1 V); we only run it for the settle wait.
     if SWEEP_MODE == "rev/fwd":
         try:
-            if INSTRUMENT == "KEITHLEY":
-                preconditioning_device(driver)   # only used for the settle wait
+            preconditioning_device(driver)   # only used for the settle wait
         except Exception as e:
             print(f"Preconditioning skipped/failed: {e}")
 
@@ -342,14 +347,14 @@ def main():
     #    configured below survive). This is the required reconfiguration step.
     if hasattr(driver, "set_source_mode"):
         driver.set_source_mode(curr_sour=False)
-    else:
+    if not INSTRUMENT == "ADALM1000":
         driver.connect(curr_sour=False)
 
     # 4) Integration / NPLC (applied AFTER mode switch so *RST cannot wipe it)
     if INSTRUMENT == "USMU":
         driver.configure_integration(1)
     elif INSTRUMENT == "KEITHLEY":
-        driver.configure_integration(0.01)
+        driver.configure_integration(0.1)
 
     t0 = time.perf_counter()
     delta_V = np.abs(V_STOP - V_START)

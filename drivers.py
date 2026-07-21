@@ -24,14 +24,18 @@ SHUNT_RESISTANCE_OHM = 219.6
 
 V_MAX_V         = 2.0         # square-wave high level  (V)
 V_MIN_V         = 0.0        # square-wave low level   (V)
-CURRENT_LIMIT_A = 0.1         # compliance current      (A)
+CURRENT_LIMIT_A = 0.1         # compliance / source current limit (A) = 100 mA
+# Fixed current-MEASUREMENT range. Auto-range was selecting a µA range and
+# corrupting the source/measure pair (source V != measured V). 0.01 A = 10 mA
+# fits this cell (~1-2 mA); raise to 0.1 if your cell exceeds ~10 mA/cm².
+CURRENT_MEAS_RANGE_A = 0.01   # 10 mA fixed sense range
 
 # Number of scope samples averaged per measurement point.
 N_MEASURE_SAMPLES = 1000
 
 # Scope sample rate (Hz)
 SCOPE_SAMPLE_RATE = 1e5
-
+CURRENT_RANGES = [1e-6, 10e-6, 100e-6, 1e-3, 10e-3, 100e-3, 1.0]
 
 class ADALM1000_Driver:
     """ Simple ADALM1000 (pysmu) driver handling SMU logic.
@@ -52,7 +56,7 @@ class ADALM1000_Driver:
         self._sample_rate        = 100000   # Sa/s (sweep param)
         self._integration_time_s = 0.05    # averaging window per measurement
 
-    def connect(self):
+    def connect(self, curr_sour=False):
         if Session is None:
             raise ImportError("pysmu package not found.")
         print(f"Opening pysmu Session (device_index={self.device_index})")
@@ -116,6 +120,20 @@ class ADALM1000_Driver:
         for _ in range(N_SETTLE_CALLS):
             self._device.get_samples(self._n_samples)
 
+    def calibrate_offset(self):
+        """Re-measure the DC current offset with the DUT already connected.
+
+        `connect()` measures the instrument offset with nothing attached; once the
+        solar cell is hooked up (and held at 0 V) the residual DC current differs,
+        so this re-baselines it under the real measurement conditions.
+        """
+        self._chan_a.mode = Mode.SVMI
+        self._chan_a.constant(0.0)
+        self._settle()
+        self._i_offset = self._measure_raw_i()
+        print(f"ADALM1000 offset recalibrated (DUT connected): "
+              f"{self._i_offset*1e6:.3f} uA")
+
     def _measure_raw_i(self) -> float:
         """Raw current reading from channel A (CHA reports its own current in SVMI)."""
         t0 = time.perf_counter()
@@ -132,11 +150,22 @@ class ADALM1000_Driver:
         self._settle()
         return self.measure()
 
+    def set_current_and_measure(self, current: float):
+        self._chan_a.mode = Mode.SIMV
+        self._chan_a.constant(current)
+        self._settle()
+        return self.measure()
+
     def measure(self) -> tuple[float, float]:
         """Average several get_samples() calls for `integration_time_s`.
 
         Voltage and current are both read from channel A (the M1K SMU channel);
         the DC offset measured at connect() is subtracted from the current.
+
+        Sign convention: the ADALM1000 in SVMI reports the current as *leaving*
+        the channel (positive when sourcing). For a solar cell the generated
+        photocurrent flows *into* the channel, so we negate it to match the
+        USMU/Keithley convention (negative current for a generator).
         """
         t0     = time.perf_counter()
         all_v, all_i = [], []
@@ -146,7 +175,10 @@ class ADALM1000_Driver:
             all_v.extend([s[0][0] for s in samples])
             all_i.extend([s[0][1] for s in samples])
         v_avg = float(np.nanmean(all_v))
-        i_avg = float(np.nanmean(all_i)) - self._i_offset
+        # ADALM1000 SVMI reports current as *leaving* the channel (positive when
+        # sourcing). A solar cell draws current *into* the channel, so negate to
+        # match the USMU/Keithley convention (negative current for a generator).
+        i_avg = -(float(np.nanmean(all_i)) - self._i_offset)
         print(f"ADALM1000: {v_avg:.4f} V, {i_avg:.4e} A")
         return v_avg, i_avg
 
@@ -163,7 +195,10 @@ class USMU_Driver:
         idn = self._dev.read_idn()
         print(f"  Connected to uSMU: {idn}")
         self._dev.enable_output()
-        self._dev.set_current_limit(CURRENT_LIMIT_A * 1e3)   # uSMU uses mA
+        if curr_sour == True:
+            self._dev.set_current_limit(0)  # uSMU uses mA
+        else:
+            self._dev.set_current_limit(CURRENT_LIMIT_A * 1e3)   # uSMU uses mA
 
     def disconnect(self):
         self._dev.set_voltage(0)
