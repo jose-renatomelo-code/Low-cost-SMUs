@@ -33,7 +33,13 @@
       "Bash(\"$PY\" -c \"from pymeasure.instruments import Instrument; import inspect; print\\(inspect.getsourcefile\\(Instrument\\)\\)\")",
       "Bash(\"$PY\" -c \":*)",
       "Bash(.venv/Scripts/python.exe jv_sweep.py)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(.venv/Scripts/python.exe -c \"import ast; ast.parse\\(open\\('mppt_po.py'\\).read\\(\\)\\); print\\('syntax OK'\\)\")",
+      "Bash(.venv/Scripts/python.exe -:*)",
+      "Read(//tmp/**)",
+      "Bash(for mt:*)",
+      "Bash(do echo:*)",
+      "Read(//c/Users/hyd-laptop/Documents/LowCostSmus/output MPPT/ADALM1000/**)"
     ]
   }
 }
