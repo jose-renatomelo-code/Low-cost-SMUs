@@ -8,13 +8,13 @@ import time
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # INSTRUMENT SELECTION AND OUTPUT PATH  –  KEITHLEY / USMU / ADALM1000 / AD3
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-INSTRUMENT = "ADALM1000"   # "USMU" | "KEITHLEY" | "ADALM1000" | "AD3"
+INSTRUMENT = "KEITHLEY"   # "USMU" | "KEITHLEY" | "ADALM1000" | "AD3"
 OUTPUT_DIR  = Path("output JV")
 OUTPUT_DIR.mkdir(exist_ok=True)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # JV INITIAL PARAMETERS
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-SCAN_RATES = [0.01, 0.1, 1, 10]      # V/s
+SCAN_RATES = [10, 1, 0.1, 0.01]      # V/s
 N_LOOPS = 1
 SWEEP_MODE = "rev/fwd"               # "rev/fwd" | "fwd/rev"
 P_in = 100                           # mW/cm²

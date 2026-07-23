@@ -1,5 +1,3 @@
-from drivers import (ADALM1000_Driver, AD3_Driver,
-                    Keithley2450_Driver, USMU_Driver)
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -15,7 +13,7 @@ except ImportError:  # scipy opcional: só necessário no método "fitting"
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # CONFIGURAÇÃO  –  INSTRUMENTO, MÉTODO E PARÂMETROS DO MPPT
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-INSTRUMENT = "USMU"   # "USMU" | "KEITHLEY" | "ADALM1000" | "AD3"
+INSTRUMENT = "KEITHLEY"   # "USMU" | "KEITHLEY" | "ADALM1000" | "AD3"
 OUTPUT_DIR  = Path("output MPPT")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
@@ -25,24 +23,27 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 #   "fixed"   -> aguarda um tempo fixo de dwell (T_DWELL) e usa a média
 #   "fitting" -> aguarda T_DWELL e extrapola a corrente de estado estacionário
 #                via ajuste bi-exponencial da transiente
-METHOD = "fitting"               # "cv" / "fitting" / "fixed"
+METHOD = "fixed"               # "cv" / "fitting" / "fixed"
 CV_WINDOW = 20              # nº de amostras na janela deslizante do critério CV
-MIN_CV = 0.01              # CV máximo (0.1%) para considerar estado estacionário
+MIN_CV = 0.1              # CV máximo (0.1%) para considerar estado estacionário
 
 # Orientação do passo inicial do algoritmo Perturb & Observe:
 #   "FORWARD"    -> sobe a tensão (direction = +1)
 #   "REVERSE"    -> desce a tensão  (direction = -1)
 #   "FROM_VOC"   -> faz pré-condicionamento, parte de Voc e desce (direction = -1)
-ORIENTATION = "FORWARD"     # "FORWARD" / "REVERSE" / "FROM_VOC"
+ORIENTATION = "REVERSE"     # "FORWARD" / "REVERSE" / "FROM_VOC"
 
-# Abordagem de controle. GALVANOSTATIC ainda não está implementado.
-APPROACH = "POTENTIOSTATIC" # "POTENTIOSTATIC" / "GALVANOSTATIC"
+# Abordagem de controle.
+APPROACH = "GALVANOSTATIC"   # "POTENTIOSTATIC" / "GALVANOSTATIC"
 
 # ── Parâmetros do MPPT (Perturb & Observe) ───────────────────────────────────
 V_START    = 0.5     # V  – tensão inicial do rastreamento
+I_START    =-13.1e-3    # A  - corrente inicial do MPPT galvanostático (±10mA para ADALM1000)
 T_DWELL    = 2       # s  – tempo de dwell (métodos "fixed" / "fitting")
 LARGE_STEP = 0.1     # V  – passo de perturbação na fase de EXPLORAÇÃO
 SMALL_STEP = 0.05    # V  – passo de perturbação na fase de REFINO (perto do MPP)
+LARGE_I_STEP = 1e-3  # I – passo de perturbação na fase de EXPLORAÇÃO no modo galvanostático
+SMALL_I_STEP = 0.5e-3# I – passo de perturbação na fase de EXPLORAÇÃO no modo galvanostático
 SAMPLE_AREA = 5      # cm²
 P_IN       = 100     # mW/cm²  – irradiância incidente (para o cálculo de PCE)
 T_TOTAL    = 60      # s  – duração total do rastreamamento
@@ -120,8 +121,8 @@ def double_exp_fitting(xdata, ydata):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # AQUISIÇÃO DE UMA JANELA (um passo do Perturb & Observe)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-def acquire_cv_window(driver, v_now, cycle_start_time):
-    """Aplica V=v_now e amostra até a corrente estabilizar (CV < MIN_CV) ou TIMEOUT.
+def acquire_cv_window(driver, excitation_now, cycle_start_time):
+    """Aplica V=excitation_now (ou I=excitation_now) e amostra até a corrente/tensão estabilizar (CV < MIN_CV) ou TIMEOUT.
 
     A janela é cronometrada a partir de seu próprio início (window_start),
     não do início do tracking — o TIMEOUT e o t_rel referem-se ao ciclo atual.
@@ -133,27 +134,31 @@ def acquire_cv_window(driver, v_now, cycle_start_time):
     cv_buf = []
     window_start = time.perf_counter()
     while (not steady_state) and (time.perf_counter() - window_start) < TIMEOUT:
-        vv, ii = driver.set_voltage_and_measure(v_now)
+        if APPROACH == "POTENTIOSTATIC":
+            vv, ii = driver.set_voltage_and_measure(excitation_now)
+        else:
+            vv, ii = driver.set_current_and_measure(excitation_now)
         t_rel = time.perf_counter() - window_start
         t_buf.append(t_rel)
         v_buf.append(vv)
         i_buf.append(ii)
 
-        cv_buf.append(ii)
+        # Monitora a corrente no modo potenciostático ou a tensão no modo galvanostático
+        signal_val = ii if APPROACH == "POTENTIOSTATIC" else vv
+        cv_buf.append(signal_val)
         if len(cv_buf) > CV_WINDOW:
             del cv_buf[0]
-            i_mean = np.mean(cv_buf)
-            i_std = np.std(cv_buf)
-            if i_mean != 0 and abs(i_std / i_mean) < MIN_CV:
+            sig_mean = np.mean(cv_buf)
+            sig_std = np.std(cv_buf)
+            if sig_mean != 0 and abs(sig_std / sig_mean) < MIN_CV:
                 steady_state = True
-
 
     if not steady_state:
         print("[cv] TIMEOUT atingido sem estabilidade — usando janela completa.")
     return np.array(t_buf), np.array(v_buf), np.array(i_buf)
 
 
-def acquire_dwell_window(driver, v_now, cycle_start_time, dwell):
+def acquire_dwell_window(driver, excitation_now, cycle_start_time, dwell):
     """Aplica V=v_now e amostra por 'dwell' segundos (métodos fixed/fitting).
 
     A janela é cronometrada a partir de seu próprio início (window_start),
@@ -165,11 +170,15 @@ def acquire_dwell_window(driver, v_now, cycle_start_time, dwell):
     t_buf, v_buf, i_buf = [], [], []
     window_start = time.perf_counter()
     while (time.perf_counter() - window_start) < dwell:
-        vv, ii = driver.set_voltage_and_measure(v_now)
+        if APPROACH == "POTENTIOSTATIC":
+            v_meas, i_meas = driver.set_voltage_and_measure(excitation_now)
+        else:
+            # Galvanostatic mode
+            v_meas, i_meas = driver.set_current_and_measure(excitation_now)
         t_rel = time.perf_counter() - window_start
         t_buf.append(t_rel)
-        v_buf.append(vv)
-        i_buf.append(ii)
+        v_buf.append(v_meas)
+        i_buf.append(i_meas)
     return np.array(t_buf), np.array(v_buf), np.array(i_buf)
 
 
@@ -207,20 +216,20 @@ def process_window(t, v, i, method):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # LÓGICA PERTURB & OBSERVE (PO)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-def po_logic(p_now, v_avg, direction, is_exploring, p_prev):
+def po_logic(p_now, excitation_now, direction, is_exploring, p_prev):
     """Decide o próximo passo do rastreamento MPPT.
 
     Parâmetros
     ----------
     p_now         : potência média desta janela (mW, valor absoluto)
-    v_avg         : tensão média desta janela (V)
-    direction     : direção atual do passo (+1 sobe V, -1 desce V)
+    excitation_now: setpoint atual de tensão (V) ou corrente (A)
+    direction     : direção atual do passo (+1 sobe setpoint, -1 desce setpoint)
     is_exploring  : True se ainda procura a região do MPP (passo grande)
     p_prev        : potência da janela anterior (mW, abs); 0 no 1º ciclo
 
     Retorna
     -------
-    (v_next, direction, is_exploring, step)
+    (excitation_next, direction, is_exploring, step)
     """
     # Primeiro ciclo: não há referência anterior, mantém a direção.
     if p_prev != 0:
@@ -232,10 +241,18 @@ def po_logic(p_now, v_avg, direction, is_exploring, p_prev):
                 is_exploring = False
                 print("INFO: direção invertida — região do MPP encontrada (REFINO).")
 
-    step = LARGE_STEP if is_exploring else SMALL_STEP
-    v_next = v_avg + step * direction
-    return v_next, direction, is_exploring, step
+    if APPROACH == "POTENTIOSTATIC":
+        step = LARGE_STEP if is_exploring else SMALL_STEP
+        v_next = excitation_now + step * direction
+        return v_next, direction, is_exploring, step
+    else:
+        step = LARGE_I_STEP if is_exploring else SMALL_I_STEP
+        i_next = excitation_now + step * direction
+        return i_next, direction, is_exploring, step
 
+
+def inc_logic():
+    pass
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # PLOT E SAVE (salva os dados brutos + resumo do tracking + figuras)
@@ -345,20 +362,20 @@ def plot_and_save(raw_df, po_df, mpp, smu_dir, instrument, method):
 # MAIN
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 def main():
-    # GALVANOSTATIC ainda não implementado — trava cedo com mensagem clara.
-    if APPROACH == "GALVANOSTATIC":
-        raise NotImplementedError(
-            "Abordagem GALVANOSTATIC ainda não implementada. "
-            "Use APPROACH = 'POTENTIOSTATIC'."
-        )
-
     print(f"\nConnecting to instrument: {INSTRUMENT}")
     driver = build_driver(INSTRUMENT)
-    smu_dir = OUTPUT_DIR / INSTRUMENT / METHOD
+    smu_dir = OUTPUT_DIR / INSTRUMENT / APPROACH / METHOD / ORIENTATION
     smu_dir.mkdir(parents=True, exist_ok=True)
 
-    # Conecta em modo fonte de tensão (potenciostático)
-    driver.connect(curr_sour=False)
+    if APPROACH == "POTENTIOSTATIC":
+        # Potentiostatic
+        driver.connect(curr_sour=False)
+    else:
+        # Galvanostatic
+        driver.connect(curr_sour=True)
+
+    v_start = V_START
+    i_start = I_START
 
     # FROM_VOC: pré-condiciona e parte do Voc medido
     if ORIENTATION == "FROM_VOC":
@@ -367,27 +384,31 @@ def main():
         try:
             voc = preconditioning_device(driver)
             v_start = voc
-            print(f"FROM_VOC: iniciando rastreamento a partir de Voc = {v_start:.4f} V")
+            i_start = 0.0  # Em Voc a corrente do gerador é ~0 A
+            print(f"FROM_VOC: iniciando rastreamento a partir de Voc = {v_start:.4f} V (I = 0.0 A)")
         except Exception as e:
             v_start = V_START
-            print(f"FROM_VOC preconditioning falhou ({e}); usando V_START={v_start} V")
+            i_start = I_START
+            print(f"FROM_VOC preconditioning falhou ({e}); usando V_START={v_start} V, I_START={i_start} A")
         if hasattr(driver, "set_source_mode"):
-            driver.set_source_mode(curr_sour=False)
-    else:
-        v_start = V_START
+            driver.set_source_mode(curr_sour=False if APPROACH == "POTENTIOSTATIC" else True)
 
     # Configura integração / NPLC (após voltar ao modo tensão)
     if INSTRUMENT == "USMU":
         driver.configure_integration(1)
     elif INSTRUMENT == "KEITHLEY":
-        driver.configure_integration(1)
+        driver.configure_integration(0.1)
 
     # Direção inicial conforme a orientação escolhida
     direction = 1 if ORIENTATION == "FORWARD" else -1
 
     # Estado do algoritmo
     is_exploring = True       # True=EXPLORAÇÃO (passo grande), False=REFINO
-    v_now = v_start
+    if APPROACH == "POTENTIOSTATIC":
+        excitation_now = v_start
+    else:
+        # Galvanostático: excitation_now = corrente no setpoint
+        excitation_now = i_start
     p_prev = 0.0              # potência da janela anterior (abs, mW)
 
     # Melhor ponto de potência máxima (MPP) encontrado até agora
@@ -405,10 +426,10 @@ def main():
             cycle_t0 = time.perf_counter()
             # ── 1) Aquisição da janela ──────────────────────────────────────
             if METHOD == "cv":
-                t_win, v_win, i_win = acquire_cv_window(driver, v_now, cycle_start_time)
+                t_win, v_win, i_win = acquire_cv_window(driver, excitation_now, cycle_start_time)
             else:  # "fixed" ou "fitting"
                 t_win, v_win, i_win = acquire_dwell_window(
-                    driver, v_now, cycle_start_time, T_DWELL)
+                    driver, excitation_now, cycle_start_time, T_DWELL)
 
             # ── 2) Processamento da janela (média ou fitting) ───────────────
             avg_v, avg_i, info = process_window(t_win, v_win, i_win, METHOD)
@@ -441,15 +462,23 @@ def main():
                 })
 
             # ── 3) Lógica Perturb & Observe ─────────────────────────────────
-            v_now, direction, is_exploring, step = po_logic(
-                avg_p_mW, avg_v, direction, is_exploring, p_prev)
+            excitation_now, direction, is_exploring, step = po_logic(
+                avg_p_mW, excitation_now, direction, is_exploring, p_prev)
             p_prev = avg_p_mW
 
-            # Clamp de segurança: mantém a tensão dentro do range do instrumento
-            v_max = getattr(driver, "V_MAX_V", None) or 2.0
-            if v_now < 0.0 or v_now > v_max:
-                v_now = min(max(v_now, 0.0), v_max)
-                print(f"  (tensão limitada ao range [0, {v_max}] V)")
+            # Clamp de segurança: mantém a tensão/corrente dentro do range do instrumento
+            if APPROACH == "POTENTIOSTATIC":
+                v_max = getattr(driver, "V_MAX_V", None) or 2.0
+                if excitation_now < 0.0 or excitation_now > v_max:
+                    excitation_now = min(max(excitation_now, 0.0), v_max)
+                    print(f"  (tensão limitada ao range [0, {v_max}] V)")
+            else:
+                # Galvanostático: limite de corrente (não tensão)
+                # Correntes negativas = geração (gerador solar), positivas = absorção
+                i_max = getattr(driver, "CURRENT_LIMIT_A", None) or 0.1
+                if abs(excitation_now) > i_max:
+                    excitation_now = min(max(excitation_now, -i_max), i_max)
+                    print(f"  (corrente limitada ao range [{-i_max}, {i_max}] A)")
 
             mode = "REFINE" if not is_exploring else "EXPLORE"
 
@@ -468,7 +497,7 @@ def main():
                 "power_density(mW/cm²)": float(avg_p_density),
                 "PCE(%)": float(avg_pce),
                 "direction": int(direction),
-                "step(V)": float(step),
+                "step": float(step),
                 "mode": mode,
             })
 

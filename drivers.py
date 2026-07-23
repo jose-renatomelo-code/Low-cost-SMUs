@@ -68,19 +68,20 @@ class ADALM1000_Driver:
         self._device = self._session.devices[self.device_index]
         self._device.ignore_dataflow = True
         self._chan_a = self._device.channels["A"]
-        # On the ADALM1000 each channel is a source-measure unit: in SVMI mode
-        # channel A both applies the voltage AND reports its own current.
-        # Channel B is left free (HI_Z) — it is NOT a separate sense node.
-        self._chan_a.mode = Mode.SVMI
-        self._chan_a.constant(0.0)
+        # On the ADALM1000 each channel is a source-measure unit:
+        # - SVMI mode: Source Voltage, Measure Current (para MPPT potenziostático)
+        # - SIMV mode: Source Current, Measure Voltage (para MPPT galvânico)
+        if curr_sour:
+            self._chan_a.mode = Mode.SIMV
+            self._chan_a.constant(0.0)  # 0 A como ponto inicial
+        else:
+            self._chan_a.mode = Mode.SVMI
+            self._chan_a.constant(0.0)  # 0 V como ponto inicial
         self._device.channels["B"].mode = Mode.HI_Z
         for _ in range(N_SETTLE_CALLS):
             self._device.get_samples(1000)
-        # Measure the channel-offset (zero-point): at 0V the residual current
-        # reading is the instrument's systematic DC offset, subtracted later.
-        self._i_offset = self._measure_raw_i()
-        print(f"ADALM1000 connected (device {self.device_index}), "
-              f"i_offset={self._i_offset*1e6:.3f} uA")
+
+        print(f"ADALM1000 connected (device {self.device_index}, curr_sour={curr_sour})")
 
     def disconnect(self):
         if self._chan_a is not None:
@@ -120,28 +121,13 @@ class ADALM1000_Driver:
         for _ in range(N_SETTLE_CALLS):
             self._device.get_samples(self._n_samples)
 
-    def calibrate_offset(self):
-        """Re-measure the DC current offset with the DUT already connected.
-
-        `connect()` measures the instrument offset with nothing attached; once the
-        solar cell is hooked up (and held at 0 V) the residual DC current differs,
-        so this re-baselines it under the real measurement conditions.
-        """
-        self._chan_a.mode = Mode.SVMI
-        self._chan_a.constant(0.0)
-        self._settle()
-        self._i_offset = self._measure_raw_i()
-        print(f"ADALM1000 offset recalibrated (DUT connected): "
-              f"{self._i_offset*1e6:.3f} uA")
-
     def _measure_raw_i(self) -> float:
         """Raw current reading from channel A (CHA reports its own current in SVMI)."""
         t0 = time.perf_counter()
         all_i = []
-        while (time.perf_counter() - t0) < self._integration_time_s:
-            samples = self._device.get_samples(self._n_samples)
-            # sample = [chA_sample, chB_sample]; chA[1] = current through channel A
-            all_i.extend([s[0][1] for s in samples])
+        samples = self._device.get_samples(self._n_samples)
+        # sample = [chA_sample, chB_sample]; chA[1] = current through channel A
+        all_i.extend([s[0][1] for s in samples])
         return float(np.nanmean(all_i))
 
     def set_voltage_and_measure(self, voltage: float) -> tuple[float, float]:
@@ -170,16 +156,11 @@ class ADALM1000_Driver:
         t0     = time.perf_counter()
         all_v, all_i = [], []
         # Guarantee at least one acquisition even for a zero-length window.
-        while (time.perf_counter() - t0) < self._integration_time_s or not all_v:
-            samples = self._device.get_samples(self._n_samples)
-            all_v.extend([s[0][0] for s in samples])
-            all_i.extend([s[0][1] for s in samples])
+        samples = self._device.get_samples(self._n_samples)
+        all_v.extend([s[0][0] for s in samples])
+        all_i.extend([s[0][1] for s in samples])
         v_avg = float(np.nanmean(all_v))
-        # ADALM1000 SVMI reports current as *leaving* the channel (positive when
-        # sourcing). A solar cell draws current *into* the channel, so negate to
-        # match the USMU/Keithley convention (negative current for a generator).
-        i_avg = -(float(np.nanmean(all_i)) - self._i_offset)
-        print(f"ADALM1000: {v_avg:.4f} V, {i_avg:.4e} A")
+        i_avg = float(np.nanmean(all_i))
         return v_avg, i_avg
 
 class USMU_Driver:
@@ -220,6 +201,19 @@ class USMU_Driver:
         v, i = self._dev.set_voltage_and_measure(voltage_v)
         return float(v), float(i)
 
+    def set_current_and_measure(self, current_A: float) -> tuple[float, float]:
+        """Apply current setpoint (in A), return (measured_V, measured_A)."""
+        if hasattr(self._dev, "set_current_and_measure"):
+            v, i = self._dev.set_current_and_measure(current_A * 1e3)
+            return float(v), float(i)
+        elif hasattr(self._dev, "set_current"):
+            self._dev.set_current(current_A * 1e3)
+            v, i = self._dev.measure() if hasattr(self._dev, "measure") else (0.0, current_A)
+            return float(v), float(i)
+        else:
+            raise NotImplementedError("uSMU does not support galvanostatic sourcing mode.")
+
+
 class Keithley2450_Driver:
     """SCPI driver for Keithley 2450 SourceMeter via PyVISA."""
 
@@ -235,7 +229,7 @@ class Keithley2450_Driver:
 
         if curr_sour:
             # Source current, measure voltage
-            self._dev.write("SOUR:FUNC \"CURR\"")
+            self._dev.write("SOUR:FUNC CURR")
             self._dev.write("SENS:FUNC VOLT")
 
         else:
@@ -245,6 +239,8 @@ class Keithley2450_Driver:
 
         self._dev.write(f"SOUR:VOLT:RANG {max(abs(V_MAX_V), abs(V_MIN_V))}")
         self._dev.write(f"SOUR:VOLT:ILIM {CURRENT_LIMIT_A}")
+        self._dev.write("SOUR:CURR:VLIM 5.0")
+
         self._dev.write("SENS:CURR:RANG:AUTO ON")
         self._dev.write("OUTP ON")
 

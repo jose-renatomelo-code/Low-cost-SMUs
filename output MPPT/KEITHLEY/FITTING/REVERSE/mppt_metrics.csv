@@ -1,0 +1,2 @@
+Instrument,Method,Orientation,Approach,SampleArea(cm²),P_in(mW/cm²),T_total(s),V_MPP(V),J_MPP(mA/cm²),P_MPP(mW),PCE_max(%),N_cycles
+KEITHLEY,fitting,REVERSE,POTENTIOSTATIC,5,100,60,0.7000000000000002,-32.25971433497701,112.90900017241957,22.581800034483916,30
