@@ -39,7 +39,9 @@
       "Read(//tmp/**)",
       "Bash(for mt:*)",
       "Bash(do echo:*)",
-      "Read(//c/Users/hyd-laptop/Documents/LowCostSmus/output MPPT/ADALM1000/**)"
+      "Read(//c/Users/hyd-laptop/Documents/LowCostSmus/output MPPT/ADALM1000/**)",
+      "Bash(command -v python3)",
+      "Bash(command -v python)"
     ]
   }
 }
