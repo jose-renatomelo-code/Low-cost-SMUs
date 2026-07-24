@@ -36,6 +36,9 @@ ORIENTATION = "REVERSE"     # "FORWARD" / "REVERSE" / "FROM_VOC"
 # Abordagem de controle.
 APPROACH = "GALVANOSTATIC"   # "POTENTIOSTATIC" / "GALVANOSTATIC"
 
+# INC method
+epslon = 1e-5   # banda morta da lógica INC
+
 # ── Parâmetros do MPPT (Perturb & Observe) ───────────────────────────────────
 V_START    = 0.5     # V  – tensão inicial do rastreamento
 I_START    =-13.1e-3    # A  - corrente inicial do MPPT galvanostático (±10mA para ADALM1000)
@@ -251,7 +254,36 @@ def po_logic(p_now, excitation_now, direction, is_exploring, p_prev):
         return i_next, direction, is_exploring, step
 
 
-def inc_logic():
+def inc_logic(i_now, v_now, is_exploring, i_prev=0, v_prev=0, direction=1):
+    # dP/dV = 0 (MPP) d(I*V)/dV = dI/dV * V + I = 0
+    # dI/dV = -I/V
+    dI = i_now - i_prev
+    dV = v_now - v_prev
+    if abs(dI/dV + i_now/v_now) < epslon:
+        print(f"INFO: MPP found at i = {i_now}, v = {v_now}")
+        # keep trying this condition
+    elif dI/dV < i_now/v_now:
+        # MPP is to the right
+        direction = 1
+        if is_exploring:
+            is_exploring = False
+            direction *= -1
+    elif dI/dV > i_now/v_now:
+        # MPP is to the left
+        direction = -1
+        
+
+    if APPROACH == "POTENTIOSTATIC":
+        step = LARGE_STEP
+        v_next = excitation_now + step * direction
+        return v_next, direction, is_exploring, step
+    else:
+        step = LARGE_I_STEP
+        i_next = excitation_now + step * direction
+        return i_next, direction, is_exploring, step
+
+
+
     pass
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
