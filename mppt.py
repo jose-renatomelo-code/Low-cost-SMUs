@@ -23,12 +23,12 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 #   "fixed"   -> aguarda um tempo fixo de dwell (T_DWELL) e usa a média
 #   "fitting" -> aguarda T_DWELL e extrapola a corrente de estado estacionário
 #                via ajuste bi-exponencial da transiente
-METHOD = "fixed"               # "cv" / "fitting" / "fixed"
+METHOD = "cv"               # "cv" / "fitting" / "fixed"
 CV_WINDOW = 20              # nº de amostras na janela deslizante do critério CV
 MIN_CV = 0.1              # CV máximo (0.1%) para considerar estado estacionário
 
 # CORE MPPT LOGIC
-LOGIC = "PO"        # "PO" - Perturb and Observe or "INC" - Incremental Conductance
+LOGIC = "INC"        # "PO" - Perturb and Observe or "INC" - Incremental Conductance
 
 # Orientação do passo inicial do algoritmo Perturb & Observe:
 #   "FORWARD"    -> sobe a tensão (direction = +1)
