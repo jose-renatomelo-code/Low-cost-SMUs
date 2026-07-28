@@ -22,18 +22,18 @@ Este relatório apresenta a análise estatística detalhada de desempenho dos al
 | KEITHLEY | GALVANOSTATIC | PO | fixed | FORWARD | 0.848 | -2.600 | 11.019 | 2.20 | 14.13 | 96.33 | 28.37 | 30 |
 | KEITHLEY | GALVANOSTATIC | PO | fixed | FROM_VOC | 0.864 | -2.600 | 11.227 | 2.25 | 26.39 | 77.83 | 29.21 | 30 |
 | KEITHLEY | GALVANOSTATIC | PO | fixed | REVERSE | 0.838 | -2.620 | 10.974 | 2.19 | 2.06 | 95.84 | 30.08 | 30 |
-| KEITHLEY | POTENTIOSTATIC | INC | cv | FORWARD | 0.810 | -2.634 | 10.667 | 2.13 | 1.65 | 98.39 | 0.00 | 237 |
-| KEITHLEY | POTENTIOSTATIC | INC | cv | FROM_VOC | 0.808 | -2.769 | 11.181 | 2.24 | 16.16 | 73.22 | 0.00 | 181 |
-| KEITHLEY | POTENTIOSTATIC | INC | cv | REVERSE | 0.830 | -2.679 | 11.116 | 2.22 | 1.74 | 95.77 | 0.00 | 238 |
-| KEITHLEY | POTENTIOSTATIC | INC | fixed | FORWARD | 0.840 | -2.450 | 10.292 | 2.06 | 26.10 | 88.79 | 12.42 | 30 |
-| KEITHLEY | POTENTIOSTATIC | INC | fixed | FROM_VOC | 0.829 | -2.747 | 11.389 | 2.28 | 8.09 | 92.76 | 0.00 | 30 |
+| KEITHLEY | POTENTIOSTATIC | INC | cv | FORWARD | 0.850 | -2.183 | 9.276 | 1.86 | 1.91 | 99.25 | 0.00 | 235 |
+| KEITHLEY | POTENTIOSTATIC | INC | cv | FROM_VOC | 0.819 | -2.171 | 8.891 | 1.78 | 16.01 | 74.82 | 0.00 | 181 |
+| KEITHLEY | POTENTIOSTATIC | INC | cv | REVERSE | 0.820 | -2.234 | 9.157 | 1.83 | 1.53 | 98.02 | 0.00 | 228 |
+| KEITHLEY | POTENTIOSTATIC | INC | fixed | FORWARD | 0.860 | -2.200 | 9.459 | 1.89 | 6.02 | 97.74 | 4.14 | 30 |
+| KEITHLEY | POTENTIOSTATIC | INC | fixed | FROM_VOC | 0.857 | -2.197 | 9.418 | 1.88 | 8.11 | 94.58 | 0.00 | 30 |
 | KEITHLEY | POTENTIOSTATIC | INC | fixed | REVERSE | 0.800 | -2.545 | 10.179 | 2.04 | 6.02 | 98.47 | 0.00 | 30 |
-| KEITHLEY | POTENTIOSTATIC | PO | cv | FORWARD | 0.810 | -2.622 | 10.619 | 2.12 | 1.65 | 99.34 | 10.41 | 237 |
-| KEITHLEY | POTENTIOSTATIC | PO | cv | FROM_VOC | 0.820 | -2.879 | 11.810 | 2.36 | 16.43 | 72.51 | 10.17 | 179 |
-| KEITHLEY | POTENTIOSTATIC | PO | cv | REVERSE | 0.820 | -2.714 | 11.126 | 2.23 | 2.01 | 96.92 | 10.92 | 237 |
-| KEITHLEY | POTENTIOSTATIC | PO | fixed | FORWARD | 0.890 | -3.235 | 14.395 | 2.88 | 8.02 | 98.65 | 13.02 | 30 |
-| KEITHLEY | POTENTIOSTATIC | PO | fixed | FROM_VOC | 0.824 | -2.789 | 11.493 | 2.30 | 10.60 | 93.66 | 8.16 | 30 |
-| KEITHLEY | POTENTIOSTATIC | PO | fixed | REVERSE | 0.850 | -3.136 | 13.329 | 2.67 | 4.00 | 97.18 | 6.76 | 30 |
+| KEITHLEY | POTENTIOSTATIC | PO | cv | FORWARD | 0.870 | -2.373 | 10.321 | 2.06 | 1.91 | 97.30 | 9.90 | 236 |
+| KEITHLEY | POTENTIOSTATIC | PO | cv | FROM_VOC | 0.850 | -2.190 | 9.307 | 1.86 | 16.26 | 74.13 | 10.83 | 171 |
+| KEITHLEY | POTENTIOSTATIC | PO | cv | REVERSE | 0.850 | -2.288 | 9.726 | 1.95 | 1.50 | 97.45 | 8.65 | 242 |
+| KEITHLEY | POTENTIOSTATIC | PO | fixed | FORWARD | 0.880 | -2.653 | 11.674 | 2.33 | 6.02 | 98.43 | 10.33 | 30 |
+| KEITHLEY | POTENTIOSTATIC | PO | fixed | FROM_VOC | 0.878 | -2.458 | 10.792 | 2.16 | 8.11 | 93.04 | 5.16 | 30 |
+| KEITHLEY | POTENTIOSTATIC | PO | fixed | REVERSE | 0.890 | -2.621 | 11.661 | 2.33 | 4.02 | 98.04 | 6.17 | 30 |
 | USMU | POTENTIOSTATIC | INC | cv | FORWARD | 0.803 | -2.891 | 11.608 | 2.32 | 0.99 | 96.55 | 6.75 | 123 |
 | USMU | POTENTIOSTATIC | INC | cv | REVERSE | 0.823 | -2.915 | 11.996 | 2.40 | 1.44 | 98.03 | 7.49 | 117 |
 | USMU | POTENTIOSTATIC | INC | fixed | FORWARD | 0.834 | -2.662 | 11.099 | 2.22 | 6.05 | 98.29 | 0.00 | 30 |
@@ -55,23 +55,23 @@ Este relatório apresenta a análise estatística detalhada de desempenho dos al
 | SMU | PCE Máximo Média (%) | Tempo Convergência $t_{95\%}$ (s) | Eficiência $\eta_{MPPT}$ (%) | Ruído de Tensão $\sigma_V$ (mV) |
 |:---|:---:|:---:|:---:|:---:|
 | ADALM1000 | 2.25 ± 0.05 | 17.20 ± 13.65 | 92.58 ± 6.95 | 10.37 ± 4.83 |
-| KEITHLEY | 2.26 ± 0.22 | 9.32 ± 8.35 | 92.04 ± 9.13 | 11.52 ± 11.03 |
+| KEITHLEY | 2.04 ± 0.19 | 7.75 ± 7.04 | 93.02 ± 8.81 | 10.48 ± 11.26 |
 | USMU | 2.35 ± 0.07 | 8.43 ± 11.65 | 95.90 ± 2.03 | 9.34 ± 7.27 |
 
 ### 2.2 Impacto do Método de Aquisição/Dwell
 
 | Método | Tempo Convergência $t_{95\%}$ (s) | Eficiência $\eta_{MPPT}$ (%) | Ruído de Tensão $\sigma_V$ (mV) |
 |:---|:---:|:---:|:---:|
-| cv | 12.90 ± 13.91 | 91.53 ± 9.37 | 8.77 ± 5.43 |
-| fixed | 10.40 ± 9.43 | 94.65 ± 4.54 | 11.93 ± 9.94 |
+| cv | 12.87 ± 13.91 | 91.82 ± 9.02 | 8.65 ± 5.40 |
+| fixed | 9.29 ± 8.81 | 95.14 ± 4.39 | 11.27 ± 10.15 |
 
 ### 2.3 Impacto da Orientação Inicial
 
 | Orientação Inicial | Tempo Convergência $t_{95\%}$ (s) | Eficiência $\eta_{MPPT}$ (%) |
 |:---|:---:|:---:|
-| FORWARD | 9.23 ± 10.20 | 96.96 ± 2.58 |
-| FROM_VOC | 14.27 ± 8.74 | 86.23 ± 9.16 |
-| REVERSE | 11.36 ± 14.90 | 95.87 ± 1.99 |
+| FORWARD | 7.69 ± 8.97 | 97.50 ± 1.03 |
+| FROM_VOC | 14.04 ± 8.86 | 86.60 ± 8.83 |
+| REVERSE | 11.31 ± 14.94 | 96.15 ± 2.15 |
 
 ---
 

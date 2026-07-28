@@ -41,7 +41,13 @@
       "Bash(do echo:*)",
       "Read(//c/Users/hyd-laptop/Documents/LowCostSmus/output MPPT/ADALM1000/**)",
       "Bash(command -v python3)",
-      "Bash(command -v python)"
+      "Bash(command -v python)",
+      "Bash(dos2unix mppt.py)",
+      "Bash(sed -i 's/uma linha por ciclo PO ou INC/one row per PO or INC cycle/' mppt.py)",
+      "Bash(sed -i 's/potência da janela anterior \\(abs, mW\\)/previous window power \\(abs, mW\\)/' mppt.py)",
+      "Bash(sed -i 's/Gera CSVs e figuras científicas do rastreamento MPPT/Generate CSVs and scientific plots for MPPT tracking/' mppt.py)",
+      "Bash(sed -i 's/convergência ao MPP/convergence to MPP/' mppt.py)",
+      "Bash(sed -i 's/un ponto por ciclo PO/one data point per PO cycle/' mppt.py)"
     ]
   }
 }

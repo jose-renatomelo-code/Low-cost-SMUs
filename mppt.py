@@ -7,53 +7,53 @@ import time
 
 try:
     from scipy.optimize import curve_fit
-except ImportError:  # scipy opcional: só necessário no método "fitting"
+except ImportError:  # scipy optional: only needed for the "fitting" method
     curve_fit = None
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# CONFIGURAÇÃO  –  INSTRUMENTO, MÉTODO E PARÂMETROS DO MPPT
+# CONFIGURATION  –  INSTRUMENT, METHOD AND MPPT PARAMETERS
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-INSTRUMENT = "ADALM1000"   # "USMU" | "KEITHLEY" | "ADALM1000" | "AD3"
+INSTRUMENT = "KEITHLEY"   # "USMU" | "KEITHLEY" | "ADALM1000" | "AD3"
 OUTPUT_DIR  = Path("output MPPT")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-# Método de aquisição / determinação do estado estacionário (steady-state):
-#   "cv"      -> amostra até o coeficiente de variação (CV) da corrente baixar
-#                abaixo de MIN_CV (critério de estabilidade)
-#   "fixed"   -> aguarda um tempo fixo de dwell (T_DWELL) e usa a média
-#   "fitting" -> aguarda T_DWELL e extrapola a corrente de estado estacionário
-#                via ajuste bi-exponencial da transiente
-METHOD = "cv"               # "cv" / "fitting" / "fixed"
-CV_WINDOW = 20              # nº de amostras na janela deslizante do critério CV
-MIN_CV = 0.1              # CV máximo (0.1%) para considerar estado estacionário
+# Acquisition method / steady-state determination:
+#   "cv"      -> sample until the current coefficient of variation (CV) drops
+#                below MIN_CV (stability criterion)
+#   "fixed"   -> wait a fixed dwell time (T_DWELL) and use the average
+#   "fitting" -> wait T_DWELL and extrapolate the steady-state current
+#                via double-exponential transient fit
+METHOD = "fixed"               # "cv" / "fitting" / "fixed"
+CV_WINDOW = 20              # number of samples in the sliding CV window
+MIN_CV = 0.1              # maximum CV (0.1%) to consider steady state
 
 # CORE MPPT LOGIC
-LOGIC = "INC"        # "PO" - Perturb and Observe or "INC" - Incremental Conductance
+LOGIC = "PO"        # "PO" - Perturb and Observe, "INC" - Incremental Conductance or "PSO"
 
-# Orientação do passo inicial do algoritmo Perturb & Observe:
-#   "FORWARD"    -> sobe a tensão (direction = +1)
-#   "REVERSE"    -> desce a tensão  (direction = -1)
-#   "FROM_VOC"   -> faz pré-condicionamento, parte de Voc e desce (direction = -1)
-ORIENTATION = "FROM_VOC"     # "FORWARD" / "REVERSE" / "FROM_VOC"
+# Initial step direction for Perturb & Observe algorithm:
+#   "FORWARD"    -> increase voltage (direction = +1)
+#   "REVERSE"    -> decrease voltage  (direction = -1)
+#   "FROM_VOC"   -> precondition, start from Voc and decrease (direction = -1)
+ORIENTATION = "FORWARD"     # "FORWARD" / "REVERSE" / "FROM_VOC"
 
-# Abordagem de controle.
+# Control approach.
 APPROACH = "POTENTIOSTATIC"   # "POTENTIOSTATIC" / "GALVANOSTATIC"
 
 # INC method
-epsilon = 1e-3   # banda morta da lógica INC
-It = 0.1e-3     # limite de corrente para sair do MPP (mA)
+epsilon = 1e-3   # dead band for INC logic
+It = 0.1e-3     # current limit to leave MPP (mA)
 
-# ── Parâmetros do MPPT (Perturb & Observe) ───────────────────────────────────
-V_START    = 0.95     # V  – tensão inicial do rastreamento
-I_START    =-13.1e-3    # A  - corrente inicial do MPPT galvanostático (±10mA para ADALM1000)
+# ── MPPT Parameters (Perturb & Observe) ───────────────────────────────────
+V_START    = 0.7     # V  – initial tracking voltage
+I_START    =-13.1e-3    # A  - initial galvanostatic MPPT current (±10mA para ADALM1000)
 T_DWELL    = 2       # s  – tempo de dwell (métodos "fixed" / "fitting")
-LARGE_STEP = 0.05     # V  – passo de perturbação na fase de EXPLORAÇÃO
-SMALL_STEP = 0.01    # V  – passo de perturbação na fase de REFINO (perto do MPP)
-LARGE_I_STEP = 1e-3  # I – passo de perturbação na fase de EXPLORAÇÃO no modo galvanostático
-SMALL_I_STEP = 0.5e-3# I – passo de perturbação na fase de EXPLORAÇÃO no modo galvanostático
+LARGE_STEP = 0.05     # V  – perturbation step during EXPLORATION phase
+SMALL_STEP = 0.01    # V  – perturbation step during REFINEMENT phase (near MPP)
+LARGE_I_STEP = 1e-3  # I – perturbation step during EXPLORATION phase no modo galvanostático
+SMALL_I_STEP = 0.5e-3# I – perturbation step during EXPLORATION phase no modo galvanostático
 SAMPLE_AREA = 5      # cm²
 P_IN       = 100     # mW/cm²  – irradiância incidente (para o cálculo de PCE)
-T_TOTAL    = 60      # s  – duração total do rastreamamento
+T_TOTAL    = 100      # s  – duração total do rastreamamento
 TIMEOUT    = 15      # s  – tempo máximo de espera por estado estacionário (método "cv")
 MIN_CYCLE_TIME = 0.05  # s  – tempo mínimo por ciclo (evita loop vazio em hardware rápido)
 
@@ -221,7 +221,7 @@ def process_window(t, v, i, method):
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# LÓGICA PERTURB & OBSERVE (PO)
+# PERTURB & OBSERVE LOGIC (PO)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 def po_logic(p_now, excitation_now, direction, is_exploring, p_prev):
     """Decide o próximo passo do rastreamento MPPT.
@@ -257,9 +257,11 @@ def po_logic(p_now, excitation_now, direction, is_exploring, p_prev):
         i_next = excitation_now + step * direction
         return i_next, direction, is_exploring, step
 
-
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# INCREMENTAL CONDUCTANCE LOGIC (INC)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 def inc_logic(avg_i, avg_v, i_prev, v_prev, excitation_now, direction=1, is_exploring=True):
-    """Decide o próximo passo do rastreamento MPPT pelo método de Condutância Incremental (INC).
+    """Decide the next MPPT tracking step via Incremental Conductance (INC) method.
 
     No MPP (ou quando dV == 0), mantém o potencial constante (direction = 0)
     até que a variação de corrente |dI| ultrapasse o limite 'It'.
@@ -323,17 +325,188 @@ def inc_logic(avg_i, avg_v, i_prev, v_prev, excitation_now, direction=1, is_expl
         i_next = excitation_now + step * direction
         return i_next, direction, is_exploring, step
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# PARTICLE SWARM OPTIMIZATION (PSO)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+class MPPT_PSO:
+    """ Sequential MPPT PSO algorith
+
+    Complete iteration consumes n_particles
+    Hardware cycles: Each step call evaluate the current particle
+    and increase index
+    After completing the swarm, velocities and positions
+    of all particles are updated at the same time and a new generation begins
+
+    m"""
+    def __init__(
+            self,
+            v_min: float = 0.0,
+            v_max: float = 1.1,
+            n_particles: int = 5,
+            w_max = 0.9,                        # max inertia value
+            w_min = 0.4,                        # min
+            c1: float = 2.0,                    # cognitive acceleration constant
+            c2: float = 2.0,                    # social acceleration constant
+            v_step_max_frac: float =  0.15,     # (v_max - v_min) fraction
+            max_iterations = 20,               # n iterations before force convergence
+            stagnation_tol: float = 1e-3,       # mW, min power improve
+            stagnation_patience: int = 3,       # iterations without improvement -> converge
+            reacquire_drop_frac: float = 0.1,    # P drop to exit HOLD mode
+            rng_seed: int | None = None
+):
+        self.v_min = v_min
+        self.v_max = v_max
+        self.n = n_particles
+        self.w_max = w_max
+        self.w_min = w_min
+        self.c1 = c1
+        self.c2 = c2
+        self.v_step_max = v_step_max_frac * (v_max - v_min)
+        self.max_iterations = max_iterations
+        self.stagnation_tol = stagnation_tol
+        self.stagnation_patience = stagnation_patience
+        self.reacquire_drop_frac = reacquire_drop_frac
+        self._v_step_max_frac = v_step_max_frac
+
+        self._rng = np.random.default_rng(rng_seed)
+
+        # Initialization: Uniform distribution of the particles
+        base = np.linspace(v_min, v_max, n_particles, endpoint=False)
+        slice_width = (v_max - v_min) / n_particles
+        jitter = self._rng.uniform(0.0, slice_width, size=n_particles)
+        self.positions = base + jitter
+        self.velocities = self._rng.uniform(-self.v_step_max, self.v_step_max, size=n_particles)
+
+        self.pbest_pos = self.positions.copy()
+        self.pbest_fit = np.full(n_particles, -np.inf)
+
+        self.gbest_pos = float(self.positions[0])
+        self.gbest_fit = -np.inf
+        self._last_gbest_fit = -np.inf
+
+        self.particle_idx = 0
+        self.iteration = 0
+        self.stagn_count = 0
+        self.converged = False
+        self.mode = "PSO"               # "PSO" - EXPLORE; "HOLD" - CONVERGED; MONITORING
+
+    def step(self, avg_p: float) -> float:
+        if self.mode == "HOLD":
+            return self._monitor(avg_p)
+
+        i = self.particle_idx
+        fitness = float(avg_p)
+
+        if fitness > self.pbest_fit[i]:
+            self.pbest_fit[i] = fitness
+            self.pbest_pos[i] = self.positions[i]
+
+        if fitness > self.gbest_fit:
+            self.gbest_fit = fitness
+            self.gbest_pos = float(self.positions[i])
+
+        self.particle_idx += 1
+
+        if self.particle_idx >= self.n:
+            self._update_swarm()
+            self.particle_idx = 0
+            self.iteration += 1
+            self._check_convergence()
+
+        # If convergence was just detected, hold at the best position
+        # instead of jumping to a random particle after swarm update.
+        if self.converged:
+            return self.gbest_pos
+
+        # Return the position of the next particle to evaluate
+        return float(self.positions[self.particle_idx])
+
+    def _update_swarm(self):
+        frac = self.iteration / max(self.max_iterations, 1)
+        w = self.w_max - (self.w_max - self.w_min) * frac
+        w = max(w, self.w_min)
+
+        r1 = self._rng.uniform(0.0, 1.0, size=self.n)
+        r2 = self._rng.uniform(0.0, 1.0, size=self.n)
+
+        cognitive = self.c1 * r1 * (self.pbest_pos - self.positions)
+        social = self.c2 * r2 * (self.gbest_pos - self.positions)
+        self.velocities = w * self.velocities + cognitive + social
+
+        # Constrain velocity
+        self.velocities = np.clip(self.velocities, -self.v_step_max, self.v_step_max)
+
+        self.positions += self.velocities
+
+        # Edge reflection
+        below = self.positions < self.v_min
+        above = self.positions > self.v_max
+        self.positions[below] = self.v_min
+        self.positions[above] = self.v_max
+        self.velocities[below] *= 0.5
+        self.velocities[above] *= 0.5
+
+    def _check_convergence(self):
+        improvement = self.gbest_fit - self._last_gbest_fit
+        self._last_gbest_fit = self.gbest_fit
+
+        if improvement < self.stagnation_tol:
+            self.stagn_count += 1
+        else:
+            self.stagn_count = 0
+
+        if self.stagn_count >= self.stagnation_patience or self.iteration >= self.max_iterations:
+            self.converged = True
+            self.mode = "HOLD"
+            print(
+                f"INFO: PSO converged — V_mpp≈{self.gbest_pos:.4f} V, "
+                f"P≈{self.gbest_fit:.3f} mW, after {self.iteration} generations "
+                f"({self.n * self.iteration} hardware cycles)."
+            )
+
+    def _monitor(self, avg_p: float) -> float:
+        drop_frac = 0
+        if self.gbest_fit > 0:
+            drop_frac = (self.gbest_fit - avg_p) / self.gbest_fit
+        if drop_frac > self.reacquire_drop_frac:
+            print(f"INFO: Power drop of {drop_frac*100:.1f} % detected"
+                  f". Restarting PSO...")
+
+            self.__init__(
+                v_min=self.v_min,
+                v_max=self.v_max,
+                n_particles=self.n,
+                w_max=self.w_max,
+                w_min=self.w_min,
+                c1=self.c1,
+                c2=self.c2,
+                v_step_max_frac=self._v_step_max_frac,
+                max_iterations=self.max_iterations,
+                stagnation_tol=self.stagnation_tol,
+                stagnation_patience=self.stagnation_patience,
+                reacquire_drop_frac=self.reacquire_drop_frac,
+            )
+            # Return the first particle position WITHOUT evaluating it.
+            # The next cycle will measure the actual power at this position
+            # and call step() with the correct fitness.
+            return float(self.positions[0])
+
+        if self.gbest_fit < avg_p:
+            self.gbest_fit = float(avg_p)
+
+        return self.gbest_pos
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # PLOT E SAVE (salva os dados brutos + resumo do tracking + figuras)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 def plot_and_save(raw_df, po_df, mpp, smu_dir, instrument, method):
-    """Gera CSVs e figuras científicas do rastreamento MPPT.
+    """Generate CSVs and scientific plots for MPPT tracking.
 
     Figuras:
       1 - tensão bruta vs tempo
       2 - corrente bruta vs tempo
-      3 - PCE (ou densidade de potência) por ciclo  -> convergência ao MPP
+      3 - PCE (ou densidade de potência) por ciclo  -> convergence to MPP
       4 - evolução do dwell (potência vs tempo)      -> só se method != "fixed"
 
     CSVs:
@@ -438,7 +611,7 @@ def plot_and_save(raw_df, po_df, mpp, smu_dir, instrument, method):
 def main():
     print(f"\nConnecting to instrument: {INSTRUMENT}")
     driver = build_driver(INSTRUMENT)
-    smu_dir = OUTPUT_DIR / INSTRUMENT / APPROACH / LOGIC / METHOD / ORIENTATION
+    smu_dir = OUTPUT_DIR / INSTRUMENT / "28_07" / APPROACH / LOGIC / METHOD / ORIENTATION
     smu_dir.mkdir(parents=True, exist_ok=True)
 
     if APPROACH == "POTENTIOSTATIC":
@@ -459,7 +632,7 @@ def main():
             voc = preconditioning_device(driver)
             v_start = voc
             i_start = 0.0  # Em Voc a corrente do gerador é ~0 A
-            print(f"FROM_VOC: iniciando rastreamento a partir de Voc = {v_start:.4f} V (I = 0.0 A)")
+            print(f"FROM_VOC: starting tracking from Voc = {v_start:.4f} V (I = 0.0 A)")
         except Exception as e:
             v_start = V_START
             i_start = I_START
@@ -483,14 +656,18 @@ def main():
     else:
         # Galvanostático: excitation_now = corrente no setpoint
         excitation_now = i_start
-    p_prev = 0.0              # potência da janela anterior (abs, mW)
+    p_prev = 0.0              # previous window power (abs, mW)
 
-    # Melhor ponto de potência máxima (MPP) encontrado até agora
+    # Best maximum power point (MPP) found so far
     mpp = {"v": np.nan, "j": np.nan, "p_mW": -np.inf, "pce": np.nan, "cycle": -1}
 
     # Acumuladores
     raw_records = []          # uma linha por amostra bruta
-    cycle_records = []           # uma linha por ciclo PO ou INC
+    cycle_records = []           # one row per PO or INC cycle
+
+    # Initialize PSO state
+    pso = MPPT_PSO(v_min=0.0, v_max=1.1, n_particles=5, max_iterations=15, rng_seed=42)
+
 
     print("Starting MPPT tracking...")
     cycle_start_time = time.perf_counter()
@@ -549,6 +726,11 @@ def main():
                     v_prev = avg_v
                 excitation_now, direction, is_exploring, step = inc_logic(
                     avg_i, avg_v, i_prev, v_prev, excitation_now, direction, is_exploring)
+            elif LOGIC == "PSO":
+                excitation_now = pso.step(avg_p_mW)
+                direction = 0
+                step = 0.0
+                is_exploring = not pso.converged
 
             # Clamp de segurança: mantém a tensão/corrente dentro do range do instrumento
             if APPROACH == "POTENTIOSTATIC":
@@ -564,7 +746,7 @@ def main():
                     excitation_now = min(max(excitation_now, -i_max), i_max)
                     print(f"  (corrente limitada ao range [{-i_max}, {i_max}] A)")
 
-            mode = "REFINE" if not is_exploring else "EXPLORE"
+            mode = "HOLD" if (LOGIC == "PSO" and pso.converged) else ("REFINE" if not is_exploring else "EXPLORE")
 
             # Atualiza o MPP global, se necessário
             if avg_p_mW > mpp["p_mW"]:
