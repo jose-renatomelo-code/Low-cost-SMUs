@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
 
 
 class MPPT_PSO:
@@ -185,68 +186,146 @@ def pv_sim_curve(v):
     return p_osc + p_peak
 
 def main():
-    v_min, v_max = 0.0, 1.1
+    v_min, v_max = 0.5, 0.9
     v = np.linspace(v_min, v_max, 3000)
     p = pv_sim_curve(v)
-
-    fig, ax = plt.subplots(2, 1, figsize=(9, 7), sharex=True)
 
     # Find global optimum for reference
     global_idx = np.argmax(p)
     v_global = v[global_idx]
     p_global = p[global_idx]
 
-    # --- static fitness curve with global and local optima ---
-    ax[0].plot(v, p, lw=1.5, label="Fitness curve")
-    ax[0].axvline(v_global, color="gray", ls="--", lw=0.8,
-                  alpha=0.6, label="Global optimum")
-    ax[0].set_title("Multi-modal PV curve — Partial Shading Scenario")
-    ax[0].set_ylabel("P (mW)")
-    ax[0].grid(True)
-    ax[0].legend(loc="best", fontsize=8)
+    # PSO parameters configuration
+    n_particles = 5
+    c1 = 2.0
+    c2 = 2.0
+    w_max = 0.50
+    w_min = 0.20
+    v_step_max_frac = 0.25
+    max_iterations = 20
+    stagnation_patience = 5
 
-    # --- PSO simulation: step-by-step tracking ---
     pso = MPPT_PSO(
         v_min=v_min, v_max=v_max,
-        n_particles=12,
-        max_iterations=30,
-        stagnation_patience=4,
-        v_step_max_frac=0.25,
-        w_max=0.95, w_min=0.30,
-        c1=1.5, c2=1.5,
+        n_particles=n_particles,
+        max_iterations=max_iterations,
+        stagnation_patience=stagnation_patience,
+        v_step_max_frac=v_step_max_frac,
+        w_max=w_max, w_min=w_min,
+        c1=c1, c2=c2,
         rng_seed=42,
     )
-    history_pos = []
-    history_fit = []
 
-    for _ in range(300):
+    # Store snapshots: particle positions at the START of each generation
+    gen_snapshots = [pso.positions.copy()]       # generation 0 initial spread
+    history_fit = []
+    history_pos = []
+
+    for _ in range(500):
         if pso.mode == "PSO":
+            old_iter = pso.iteration
             fitness = float(pv_sim_curve(pso.positions[pso.particle_idx]))
             pso.step(fitness)
             history_pos.append(pso.gbest_pos)
             history_fit.append(pso.gbest_fit)
+            # New generation just started → save snapshot
+            if pso.iteration != old_iter:
+                gen_snapshots.append(pso.positions.copy())
         else:
             history_pos.append(pso.gbest_pos)
             history_fit.append(pso.gbest_fit)
             break
 
-    ax[0].plot(history_pos, [pv_sim_curve(x) for x in history_pos],
-               "r.-", ms=6, mew=2, label="PSO gbest track", alpha=0.8)
-    ax[0].axhline(p_global, color="green", ls=":", lw=0.8, alpha=0.5,
-                  label=f"Global max = {p_global:.3f} mW")
+    n_frames = len(gen_snapshots)
 
-    # --- convergence plot ---
-    ax[1].plot(history_fit, "-o", markersize=4, mfc="white")
-    ax[1].axhline(p_global, color="green", ls=":", lw=0.8, alpha=0.5)
-    ax[1].set_xlabel("Hardware cycle")
-    ax[1].set_ylabel("P_gbest (mW)")
-    ax[1].set_title("PSO Convergence")
-    ax[1].grid(True)
-    ax[1].legend(fontsize=8)
+    # =====================================================================
+    #  ANIMATION — particle evolution over the PV curve
+    # =====================================================================
+    fig_anim, ax_anim = plt.subplots(figsize=(9, 5))
+    param_text = f"$N={n_particles}$, $c_1={c1}$, $c_2={c2}$, $w=[{w_min}, {w_max}]$, $v_{{step,max}}={v_step_max_frac}\\times\\Delta V$"
 
-    for a in ax:
-        a.tick_params(labelsize=9)
+    ax_anim.plot(v, p, lw=1.5, color="#3a86ff", zorder=1, label="Fitness curve")
+    ax_anim.axvline(v_global, color="gray", ls="--", lw=0.8, alpha=0.6,
+                    label="Global optimum")
+    ax_anim.axhline(p_global, color="green", ls=":", lw=0.8, alpha=0.5,
+                    label=f"Global max = {p_global:.3f} mW")
+    ax_anim.set_xlabel(f"V (V) \n {param_text}")
+    ax_anim.set_ylabel("P (mW)")
+    ax_anim.grid(True, alpha=0.3)
 
+    # Scatter for particles & gbest marker
+    particles_scatter = ax_anim.scatter(
+        [], [], s=60, c="#ff006e", edgecolors="k", linewidths=0.6,
+        zorder=3, label="Particles",
+    )
+    gbest_marker = ax_anim.scatter(
+        [], [], s=140, marker="*", c="#ffbe0b", edgecolors="k",
+        linewidths=0.7, zorder=4, label="gbest",
+    )
+    ax_anim.legend(loc="upper left", fontsize=8)
+
+    # Trail dots (fading history)
+    trail_artists = []
+
+    def init():
+        particles_scatter.set_offsets(np.empty((0, 2)))
+        gbest_marker.set_offsets(np.empty((0, 2)))
+        return [particles_scatter, gbest_marker]
+
+    def update(frame):
+        nonlocal trail_artists
+        positions = gen_snapshots[frame]
+        powers = pv_sim_curve(positions)
+
+        # Fade previous particles as trail
+        for art in trail_artists:
+            art.remove()
+        trail_artists.clear()
+
+        # Draw faint trails for last few generations
+        lookback = min(frame, 5)
+        for k in range(1, lookback + 1):
+            past = gen_snapshots[frame - k]
+            alpha = 0.15 * (1 - k / (lookback + 1))
+            tr = ax_anim.scatter(
+                past, pv_sim_curve(past), s=20, c="#ff006e",
+                alpha=alpha, zorder=2,
+            )
+            trail_artists.append(tr)
+
+        # Current particles
+        particles_scatter.set_offsets(np.column_stack([positions, powers]))
+
+        # gbest — best seen so far up to this generation
+        best_idx = np.argmax(powers)
+        gbest_v = positions[best_idx]
+        gbest_p = powers[best_idx]
+        gbest_marker.set_offsets([[gbest_v, gbest_p]])
+
+        ax_anim.set_title(
+            f"PSO Particle Evolution — Gen {frame}/{n_frames - 1}",
+            fontsize=10
+        )
+        return [particles_scatter, gbest_marker] + trail_artists
+
+    anim = FuncAnimation(
+        fig_anim, update, frames=n_frames,
+        init_func=init, interval=2000, blit=False, repeat=True,
+    )
+    plt.tight_layout()
+    plt.show()
+
+    # =====================================================================
+    #  STATIC — convergence plot (the second graph)
+    # =====================================================================
+    fig_conv, ax_conv = plt.subplots(figsize=(9, 3.5))
+    ax_conv.plot(history_fit, "-o", markersize=4, mfc="white")
+    ax_conv.axhline(p_global, color="green", ls=":", lw=0.8, alpha=0.5)
+    ax_conv.set_xlabel("Hardware cycle")
+    ax_conv.set_ylabel("P_gbest (mW)")
+    ax_conv.set_title("PSO Convergence")
+    ax_conv.grid(True)
+    ax_conv.tick_params(labelsize=9)
     plt.tight_layout()
     plt.show()
 

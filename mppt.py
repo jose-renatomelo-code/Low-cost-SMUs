@@ -13,7 +13,7 @@ except ImportError:  # scipy optional: only needed for the "fitting" method
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # CONFIGURATION  –  INSTRUMENT, METHOD AND MPPT PARAMETERS
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-INSTRUMENT = "KEITHLEY"   # "USMU" | "KEITHLEY" | "ADALM1000" | "AD3"
+INSTRUMENT = "USMU"   # "USMU" | "KEITHLEY" | "ADALM1000" | "AD3"
 OUTPUT_DIR  = Path("output MPPT")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
@@ -28,7 +28,7 @@ CV_WINDOW = 20              # number of samples in the sliding CV window
 MIN_CV = 0.1              # maximum CV (0.1%) to consider steady state
 
 # CORE MPPT LOGIC
-LOGIC = "PO"        # "PO" - Perturb and Observe, "INC" - Incremental Conductance or "PSO"
+LOGIC = "INC"        # "PO" - Perturb and Observe, "INC" - Incremental Conductance or "PSO"
 
 # Initial step direction for Perturb & Observe algorithm:
 #   "FORWARD"    -> increase voltage (direction = +1)
@@ -40,11 +40,11 @@ ORIENTATION = "FORWARD"     # "FORWARD" / "REVERSE" / "FROM_VOC"
 APPROACH = "POTENTIOSTATIC"   # "POTENTIOSTATIC" / "GALVANOSTATIC"
 
 # INC method
-epsilon = 1e-3   # dead band for INC logic
+epsilon = 1e-2   # dead band for INC logic
 It = 0.1e-3     # current limit to leave MPP (mA)
 
 # ── MPPT Parameters (Perturb & Observe) ───────────────────────────────────
-V_START    = 0.7     # V  – initial tracking voltage
+V_START    = 0.3     # V  – initial tracking voltage
 I_START    =-13.1e-3    # A  - initial galvanostatic MPPT current (±10mA para ADALM1000)
 T_DWELL    = 2       # s  – tempo de dwell (métodos "fixed" / "fitting")
 LARGE_STEP = 0.05     # V  – perturbation step during EXPLORATION phase
@@ -53,7 +53,7 @@ LARGE_I_STEP = 1e-3  # I – perturbation step during EXPLORATION phase no modo 
 SMALL_I_STEP = 0.5e-3# I – perturbation step during EXPLORATION phase no modo galvanostático
 SAMPLE_AREA = 5      # cm²
 P_IN       = 100     # mW/cm²  – irradiância incidente (para o cálculo de PCE)
-T_TOTAL    = 100      # s  – duração total do rastreamamento
+T_TOTAL    = 300      # s  – duração total do rastreamamento
 TIMEOUT    = 15      # s  – tempo máximo de espera por estado estacionário (método "cv")
 MIN_CYCLE_TIME = 0.05  # s  – tempo mínimo por ciclo (evita loop vazio em hardware rápido)
 
@@ -611,7 +611,7 @@ def plot_and_save(raw_df, po_df, mpp, smu_dir, instrument, method):
 def main():
     print(f"\nConnecting to instrument: {INSTRUMENT}")
     driver = build_driver(INSTRUMENT)
-    smu_dir = OUTPUT_DIR / INSTRUMENT / "28_07" / APPROACH / LOGIC / METHOD / ORIENTATION
+    smu_dir = OUTPUT_DIR / INSTRUMENT / "REFERENCE" / APPROACH / LOGIC / METHOD / ORIENTATION
     smu_dir.mkdir(parents=True, exist_ok=True)
 
     if APPROACH == "POTENTIOSTATIC":
@@ -644,7 +644,7 @@ def main():
     if INSTRUMENT == "USMU":
         driver.configure_integration(1)
     elif INSTRUMENT == "KEITHLEY":
-        driver.configure_integration(0.1)
+        driver.configure_integration(1)
 
     # Direção inicial conforme a orientação escolhida
     direction = 1 if ORIENTATION == "FORWARD" else -1
@@ -666,7 +666,16 @@ def main():
     cycle_records = []           # one row per PO or INC cycle
 
     # Initialize PSO state
-    pso = MPPT_PSO(v_min=0.0, v_max=1.1, n_particles=5, max_iterations=15, rng_seed=42)
+    pso = MPPT_PSO(
+        v_min=0.3, v_max=0.6,
+        n_particles=5,
+        max_iterations=20,
+        stagnation_patience=4,
+        v_step_max_frac=0.25,
+        w_max=0.9, w_min=0.4,
+        c1=2.0, c2=2.0,
+        rng_seed=42,
+    )
 
 
     print("Starting MPPT tracking...")
