@@ -329,7 +329,7 @@ def inc_logic(avg_i, avg_v, i_prev, v_prev, excitation_now, direction=1, is_expl
 # PARTICLE SWARM OPTIMIZATION (PSO)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 class MPPT_PSO:
-    """ Sequential MPPT PSO algorith
+    """ Sequential MPPT PSO algorithm
 
     Complete iteration consumes n_particles
     Hardware cycles: Each step call evaluate the current particle
@@ -337,7 +337,7 @@ class MPPT_PSO:
     After completing the swarm, velocities and positions
     of all particles are updated at the same time and a new generation begins
 
-    m"""
+    """
     def __init__(
             self,
             v_min: float = 0.0,
