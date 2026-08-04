@@ -18,10 +18,10 @@ SCAN_RATES = [10, 1]      # V/s
 N_LOOPS = 1
 SWEEP_MODE = "rev/fwd"               # "rev/fwd" | "fwd/rev"
 P_in = 100                           # mW/cm²
-SAMPLE_AREA = 4                       # cm²
+SAMPLE_AREA = 25                       # cm²
 N_POINTS = 121
 V_START = 0.0
-V_STOP  = 2.0
+V_STOP  = 1.1
 
 # SS (steady-state) criteria params
 VOC_WINDOW = 10
@@ -89,7 +89,7 @@ def preconditioning_device(driver):
             if INSTRUMENT != "USMU":
                 voc_read, c_read = driver.set_current_and_measure(0)
             else:
-                voc_read, c_read = driver.set_voltage_and_measure(1)
+                voc_read, c_read = driver.set_voltage_and_measure(5)
             last_voc_buffer.append(voc_read)
             all_voc.append(voc_read)
             t_now = time.perf_counter() - t0
@@ -328,7 +328,7 @@ def write_outputs(df_full, metrics_summary, smu_dir, instrument):
 def main():
     print(f"\nConnecting to instrument: {INSTRUMENT}")
     driver = build_driver(INSTRUMENT)
-    smu_dir = OUTPUT_DIR / INSTRUMENT / "CAGS"
+    smu_dir = OUTPUT_DIR / INSTRUMENT / "6705"
     smu_dir.mkdir(parents=True, exist_ok=True)
 
     # 1) Connect in CURRENT-SOURCE mode (set Idrive=0, monitor Voc)

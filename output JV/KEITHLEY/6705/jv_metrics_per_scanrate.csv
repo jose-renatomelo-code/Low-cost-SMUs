@@ -1,0 +1,5 @@
+scan_rate(V/s),direction,PCE(%),Voc(V),Jsc(mA/cm²),FF(%),Pmax(mW/cm²),Rs(ohm),Rsh(ohm)
+1,fwd,0.0,,0.31719088,,0.0,,
+1,rev,0.0,,0.31514772,,0.0,,
+10,fwd,0.0,,0.35279124,,0.0,,
+10,rev,0.0,,0.35155532,,0.0,,

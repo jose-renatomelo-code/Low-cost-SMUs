@@ -28,7 +28,7 @@ CV_WINDOW = 20              # number of samples in the sliding CV window
 MIN_CV = 0.1              # maximum CV (0.1%) to consider steady state
 
 # CORE MPPT LOGIC
-LOGIC = "INC"        # "PO" - Perturb and Observe, "INC" - Incremental Conductance or "PSO"
+LOGIC = "PSO"        # "PO" - Perturb and Observe, "INC" - Incremental Conductance or "PSO"
 
 # Initial step direction for Perturb & Observe algorithm:
 #   "FORWARD"    -> increase voltage (direction = +1)
@@ -40,20 +40,20 @@ ORIENTATION = "FORWARD"     # "FORWARD" / "REVERSE" / "FROM_VOC"
 APPROACH = "POTENTIOSTATIC"   # "POTENTIOSTATIC" / "GALVANOSTATIC"
 
 # INC method
-epsilon = 1e-2   # dead band for INC logic
-It = 0.1e-3     # current limit to leave MPP (mA)
+epsilon = 0.6e-3   # dead band for INC logic
+It = 1e-3     # current limit to leave MPP (mA)
 
 # ── MPPT Parameters (Perturb & Observe) ───────────────────────────────────
-V_START    = 0.3     # V  – initial tracking voltage
-I_START    =-13.1e-3    # A  - initial galvanostatic MPPT current (±10mA para ADALM1000)
+V_START    = 4.1    # V  – initial tracking voltage
+I_START    =-29.1e-3    # A  - initial galvanostatic MPPT current (±10mA para ADALM1000)
 T_DWELL    = 2       # s  – tempo de dwell (métodos "fixed" / "fitting")
-LARGE_STEP = 0.05     # V  – perturbation step during EXPLORATION phase
-SMALL_STEP = 0.01    # V  – perturbation step during REFINEMENT phase (near MPP)
+LARGE_STEP = 0.1     # V  – perturbation step during EXPLORATION phase
+SMALL_STEP = 0.05    # V  – perturbation step during REFINEMENT phase (near MPP)
 LARGE_I_STEP = 1e-3  # I – perturbation step during EXPLORATION phase no modo galvanostático
 SMALL_I_STEP = 0.5e-3# I – perturbation step during EXPLORATION phase no modo galvanostático
-SAMPLE_AREA = 5      # cm²
+SAMPLE_AREA = 25      # cm²
 P_IN       = 100     # mW/cm²  – irradiância incidente (para o cálculo de PCE)
-T_TOTAL    = 300      # s  – duração total do rastreamamento
+T_TOTAL    = 60      # s  – duração total do rastreamamento
 TIMEOUT    = 15      # s  – tempo máximo de espera por estado estacionário (método "cv")
 MIN_CYCLE_TIME = 0.05  # s  – tempo mínimo por ciclo (evita loop vazio em hardware rápido)
 
@@ -611,7 +611,7 @@ def plot_and_save(raw_df, po_df, mpp, smu_dir, instrument, method):
 def main():
     print(f"\nConnecting to instrument: {INSTRUMENT}")
     driver = build_driver(INSTRUMENT)
-    smu_dir = OUTPUT_DIR / INSTRUMENT / "REFERENCE" / APPROACH / LOGIC / METHOD / ORIENTATION
+    smu_dir = OUTPUT_DIR / INSTRUMENT / "RKJ02_Xe" / APPROACH / LOGIC / METHOD / ORIENTATION
     smu_dir.mkdir(parents=True, exist_ok=True)
 
     if APPROACH == "POTENTIOSTATIC":
@@ -667,7 +667,7 @@ def main():
 
     # Initialize PSO state
     pso = MPPT_PSO(
-        v_min=0.3, v_max=0.6,
+        v_min=4.0, v_max=5.0,
         n_particles=5,
         max_iterations=20,
         stagnation_patience=4,
@@ -743,7 +743,7 @@ def main():
 
             # Clamp de segurança: mantém a tensão/corrente dentro do range do instrumento
             if APPROACH == "POTENTIOSTATIC":
-                v_max = getattr(driver, "V_MAX_V", None) or 2.0
+                v_max = getattr(driver, "V_MAX_V", None) or 7.0
                 if excitation_now < 0.0 or excitation_now > v_max:
                     excitation_now = min(max(excitation_now, 0.0), v_max)
                     print(f"  (tensão limitada ao range [0, {v_max}] V)")

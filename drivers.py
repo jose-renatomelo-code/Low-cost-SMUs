@@ -22,7 +22,7 @@ N_SETTLE_CALLS         = 3      # discard calls after constant()
 
 SHUNT_RESISTANCE_OHM = 219.6
 
-V_MAX_V         = 2.0         # square-wave high level  (V)
+V_MAX_V         = 7.0         # square-wave high level  (V)
 V_MIN_V         = 0.0        # square-wave low level   (V)
 CURRENT_LIMIT_A = 0.1         # compliance / source current limit (A) = 100 mA
 # Fixed current-MEASUREMENT range. Auto-range was selecting a µA range and
@@ -213,7 +213,6 @@ class USMU_Driver:
         else:
             raise NotImplementedError("uSMU does not support galvanostatic sourcing mode.")
 
-
 class Keithley2450_Driver:
     """SCPI driver for Keithley 2450 SourceMeter via PyVISA."""
 
@@ -239,7 +238,7 @@ class Keithley2450_Driver:
 
         self._dev.write(f"SOUR:VOLT:RANG {max(abs(V_MAX_V), abs(V_MIN_V))}")
         self._dev.write(f"SOUR:VOLT:ILIM {CURRENT_LIMIT_A}")
-        self._dev.write("SOUR:CURR:VLIM 5.0")
+        self._dev.write("SOUR:CURR:VLIM 10.0")
 
         self._dev.write("SENS:CURR:RANG:AUTO ON")
         self._dev.write("OUTP ON")

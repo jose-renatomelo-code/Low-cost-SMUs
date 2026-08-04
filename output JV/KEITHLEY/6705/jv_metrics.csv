@@ -1,0 +1,2 @@
+Instrument,ScanRates(V/s),PCE_jv_fwd(%),PCE_jv_rev(%),Voc_jv_fwd(V),Voc_jv_rev(V),Jsc_fwd(mA/cm²),Jsc_rev(mA/cm²),FF_fwd(%),FF_rev(%),HI(%),Rs(ohm),Rsh(ohm)
+KEITHLEY,"10, 1",0.0,0.0,,,0.31719088,0.31514772,,,0.0,,
