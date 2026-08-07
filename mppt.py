@@ -13,7 +13,7 @@ except ImportError:  # scipy optional: only needed for the "fitting" method
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # CONFIGURATION  –  INSTRUMENT, METHOD AND MPPT PARAMETERS
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-INSTRUMENT = "USMU"   # "USMU" | "KEITHLEY" | "ADALM1000" | "AD3"
+INSTRUMENT = "ADALM1000"   # "USMU" | "KEITHLEY" | "ADALM1000" | "AD3"
 OUTPUT_DIR  = Path("output MPPT")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
@@ -28,7 +28,7 @@ CV_WINDOW = 20              # number of samples in the sliding CV window
 MIN_CV = 0.1              # maximum CV (0.1%) to consider steady state
 
 # CORE MPPT LOGIC
-LOGIC = "PSO"        # "PO" - Perturb and Observe, "INC" - Incremental Conductance or "PSO"
+LOGIC = "PO"        # "PO" - Perturb and Observe, "INC" - Incremental Conductance or "PSO"
 
 # Initial step direction for Perturb & Observe algorithm:
 #   "FORWARD"    -> increase voltage (direction = +1)
@@ -44,16 +44,16 @@ epsilon = 0.6e-3   # dead band for INC logic
 It = 1e-3     # current limit to leave MPP (mA)
 
 # ── MPPT Parameters (Perturb & Observe) ───────────────────────────────────
-V_START    = 4.1    # V  – initial tracking voltage
+V_START    = 0.7    # V  – initial tracking voltage
 I_START    =-29.1e-3    # A  - initial galvanostatic MPPT current (±10mA para ADALM1000)
 T_DWELL    = 2       # s  – tempo de dwell (métodos "fixed" / "fitting")
 LARGE_STEP = 0.1     # V  – perturbation step during EXPLORATION phase
 SMALL_STEP = 0.05    # V  – perturbation step during REFINEMENT phase (near MPP)
 LARGE_I_STEP = 1e-3  # I – perturbation step during EXPLORATION phase no modo galvanostático
 SMALL_I_STEP = 0.5e-3# I – perturbation step during EXPLORATION phase no modo galvanostático
-SAMPLE_AREA = 25      # cm²
+SAMPLE_AREA = 0.16      # cm²
 P_IN       = 100     # mW/cm²  – irradiância incidente (para o cálculo de PCE)
-T_TOTAL    = 60      # s  – duração total do rastreamamento
+T_TOTAL    = 20      # s  – duração total do rastreamamento
 TIMEOUT    = 15      # s  – tempo máximo de espera por estado estacionário (método "cv")
 MIN_CYCLE_TIME = 0.05  # s  – tempo mínimo por ciclo (evita loop vazio em hardware rápido)
 
@@ -611,7 +611,7 @@ def plot_and_save(raw_df, po_df, mpp, smu_dir, instrument, method):
 def main():
     print(f"\nConnecting to instrument: {INSTRUMENT}")
     driver = build_driver(INSTRUMENT)
-    smu_dir = OUTPUT_DIR / INSTRUMENT / "RKJ02_Xe" / APPROACH / LOGIC / METHOD / ORIENTATION
+    smu_dir = OUTPUT_DIR / INSTRUMENT / "kasia_3" / APPROACH / LOGIC / METHOD / ORIENTATION
     smu_dir.mkdir(parents=True, exist_ok=True)
 
     if APPROACH == "POTENTIOSTATIC":
@@ -807,6 +807,110 @@ def main():
     po_df = pd.DataFrame(cycle_records)
     plot_and_save(raw_df, po_df, mpp, smu_dir, INSTRUMENT, METHOD)
 
+def analyse_single_transient(file_path=None):
+    """Plot and fit negative and positive transients from fixed PO and calculate CV of the last 20 datapoints."""
+    if file_path is None:
+        file_path = r"C:\Users\hyd-laptop\Documents\Low-cost-SMUs\output MPPT\USMU\yanyan_dev3\POTENTIOSTATIC\PO\fixed\FORWARD\mppt_raw.csv"
+    
+    file_path = Path(file_path)
+    if not file_path.exists():
+        print(f"Erro: arquivo {file_path} não encontrado.")
+        return
+
+    df = pd.read_csv(file_path)
+    
+    # Identificar ciclos no intervalo 30s a 34s (geralmente ciclos 15 e 16)
+    # Ciclo 15: degrau positivo de tensão (V aumenta)
+    # Ciclo 16: degrau negativo de tensão (V diminui)
+    cycles = [15, 16]
+    
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+    
+    for i_ax, (cyc, ax, title_suffix, color, text_y) in enumerate([
+        (15, ax1, "Degrau Positivo", "#1f77b4", 0.45),
+        (16, ax2, "Degrau Negativo", "#2ca02c", 0.95)
+    ]):
+        cyc_df = df[df["cycle"] == cyc]
+        if cyc_df.empty:
+            print(f"Aviso: ciclo {cyc} não encontrado nos dados.")
+            continue
+            
+        t = cyc_df["time(s)"].values
+        i = cyc_df["current(A)"].values
+        v = cyc_df["voltage(V)"].values
+        
+        # Tempo relativo ao início do ciclo/janela
+        t_rel = t - t[0]
+        
+        # Coeficiente de variação (CV) dos últimos 20 pontos
+        last_20_i = i[-20:]
+        cv = np.std(last_20_i) / np.abs(np.mean(last_20_i)) if len(last_20_i) else np.nan
+        
+        # Ajuste bi-exponencial
+        fit_params = double_exp_fitting(t_rel, i)
+        
+        # Plot dos dados experimentais
+        ax.scatter(t_rel, i * 1000, color=color, label="Dados Experimentais", s=25, alpha=0.8, edgecolors="none")
+        
+        if fit_params[0] is not None:
+            # Traçar a curva de ajuste
+            t_fit = np.linspace(0, t_rel[-1], 200)
+            i_fit = double_exp_func(t_fit, *fit_params[:-1])
+            ax.plot(t_fit, i_fit * 1000, color="#d62728", label="Ajuste Bi-Exponencial")
+            
+            # Anotação com os parâmetros do ajuste
+            a1, t1, a2, t2, c, r2 = fit_params
+            textstr = '\n'.join((
+                r'$a_1 = %.3e\ \mathrm{A}$' % a1,
+                r'$\tau_1 = %.3f\ \mathrm{ms}$' % (t1 * 1000),
+                r'$a_2 = %.3e\ \mathrm{A}$' % a2,
+                r'$\tau_2 = %.3f\ \mathrm{s}$' % t2,
+                r'$I_{ss} = %.3f\ \mathrm{mA}$' % (c * 1000),
+                r'$R^2 = %.4f$' % r2,
+                r'$\mathrm{CV}_{20} = %.4f\%%$' % (cv * 100)
+            ))
+        else:
+            textstr = r'$\mathrm{CV}_{20} = %.4f\%%$' % (cv * 100)
+            
+        props = dict(boxstyle='round', facecolor='white', alpha=0.8, edgecolor='#cccccc')
+        ax.text(0.45, text_y, textstr, transform=ax.transAxes, fontsize=10,
+                verticalalignment='top', bbox=props)
+                
+        # Detalhes do gráfico
+        v_start = df[df["cycle"] == (cyc - 1)]["voltage(V)"].iloc[-1] if cyc > 0 and not df[df["cycle"] == (cyc - 1)].empty else v[0]
+        v_end = v[0]
+        ax.set_xlabel("Tempo Relativo (s)")
+        ax.set_ylabel("Corrente (mA)")
+        ax.set_title(f"{title_suffix} (Ciclo {cyc}: {v_start:.3f}V → {v_end:.3f}V)")
+        ax.legend(loc="best")
+        
+        # Print resumido no console
+        print(f"\n--- Análise do Ciclo {cyc} ({title_suffix}) ---")
+        print(f"Degrau de tensão: {v_start:.3f} V -> {v_end:.3f} V")
+        print(f"Pontos adquiridos: {len(t)}")
+        print(f"CV dos últimos 20 pontos: {cv * 100:.6f} %")
+        if fit_params[0] is not None:
+            print(f"Ajuste Bi-Exponencial:")
+            print(f"  a1 = {fit_params[0]:.4e} A, tau1 = {fit_params[1]*1000:.3f} ms")
+            print(f"  a2 = {fit_params[2]:.4e} A, tau2 = {fit_params[3]:.3f} s")
+            print(f"  Iss (offset c) = {fit_params[4]*1000:.4f} mA")
+            print(f"  R2 = {fit_params[5]:.6f}")
+        else:
+            print("Ajuste falhou ou scipy indisponível.")
+            
+    fig.suptitle("Análise de Transientes & Ajuste Bi-Exponencial", fontsize=14, weight="bold")
+    fig.tight_layout()
+    
+    # Salvar a imagem no mesmo diretório do arquivo raw
+    output_path = file_path.parent / "single_transient_analysis.png"
+    fig.savefig(output_path, dpi=300, bbox_inches="tight")
+    print(f"\n[analyse] Gráfico científico salvo em: {output_path}")
+    plt.close(fig)
+
 
 if __name__ == "__main__":
-    main()
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "--analyse":
+        analyse_single_transient()
+    else:
+        main()
