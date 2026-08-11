@@ -1,2 +1,0 @@
-Instrument,Method,Orientation,Approach,SampleArea(cm²),P_in(mW/cm²),T_total(s),V_MPP(V),J_MPP(mA/cm²),P_MPP(mW),PCE_max(%),N_cycles
-USMU,fixed,REVERSE,POTENTIOSTATIC,5,100,60,0.803,-2.884701240506329,11.582075480632911,2.3164150961265824,30

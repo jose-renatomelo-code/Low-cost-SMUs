@@ -453,26 +453,8 @@ def main():
     ax_p.set_ylabel("Power P (mW)", fontsize=11, fontweight="bold")
     ax_p.set_title("MPPT Power Evolution: PSO vs P&O vs Incremental Conductance (INC)", fontsize=12, fontweight="bold")
     ax_p.grid(True, alpha=0.3)
-    ax_p.legend(loc="lower right", fontsize=8.5, frameon=True, facecolor="white")
+    ax_p.legend(loc="lower right", fontsize=7.5, frameon=True, facecolor="white")
 
-    # Annotations
-    ax_p.annotate(f"P&O Oscillates around Peak\n({po_p_inst[-1]:.2f} mW, eff={eff_po:.1f}%)",
-                  xy=(total_hardware_cycles - 15, po_p_inst[-1]),
-                  xytext=(total_hardware_cycles - 45, po_p_inst[-1] - 8),
-                  arrowprops=dict(facecolor="#d62728", shrink=0.05, width=1, headwidth=6),
-                  fontsize=8.5, fontweight="bold", color="#d62728")
-
-    ax_p.annotate(f"INC Locked Flat (No Oscillation)\n({inc_p_inst[-1]:.2f} mW, eff={eff_inc:.1f}%)",
-                  xy=(total_hardware_cycles - 5, inc_p_inst[-1]),
-                  xytext=(total_hardware_cycles - 45, inc_p_inst[-1] + 5),
-                  arrowprops=dict(facecolor="#8e44ad", shrink=0.05, width=1, headwidth=6),
-                  fontsize=8.5, fontweight="bold", color="#8e44ad")
-
-    ax_p.annotate(f"PSO Global MPP Found\n({pso_p_gbest[-1]:.2f} mW, eff={eff_pso:.1f}%)",
-                  xy=(25, pso_p_gbest[25]),
-                  xytext=(28, pso_p_gbest[25] - 10),
-                  arrowprops=dict(facecolor="#1f77b4", shrink=0.05, width=1, headwidth=6),
-                  fontsize=8.5, fontweight="bold", color="#1f77b4")
 
     # --- Bottom Panel: Voltage Evolution ---
     ax_v_plot.plot(cycles, pso_v_inst, "o--", color="#ff7f0e", markersize=3, alpha=0.3, label="PSO Instantaneous V")
@@ -485,7 +467,7 @@ def main():
     ax_v_plot.set_ylabel("Applied Voltage V (V)", fontsize=11, fontweight="bold")
     ax_v_plot.set_title("Applied Voltage Setpoint Dynamics [0.5 V - 0.9 V]", fontsize=11, fontweight="bold")
     ax_v_plot.grid(True, alpha=0.3)
-    ax_v_plot.legend(loc="upper right", fontsize=8.5, frameon=True, facecolor="white")
+    ax_v_plot.legend(loc="upper right", fontsize=7.5, frameon=True, facecolor="white")
 
     plt.tight_layout()
 

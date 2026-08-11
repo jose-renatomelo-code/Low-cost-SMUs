@@ -14,11 +14,11 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # JV INITIAL PARAMETERS
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-SCAN_RATES = [10, 1]      # V/s
+SCAN_RATES = [10, 1, 0.1, 0.01]      # V/s
 N_LOOPS = 1
 SWEEP_MODE = "rev/fwd"               # "rev/fwd" | "fwd/rev"
 P_in = 100                           # mW/cm²
-SAMPLE_AREA = 25                       # cm²
+SAMPLE_AREA = 0.16                       # cm²
 N_POINTS = 121
 V_START = 0.0
 V_STOP  = 1.1
@@ -328,7 +328,7 @@ def write_outputs(df_full, metrics_summary, smu_dir, instrument):
 def main():
     print(f"\nConnecting to instrument: {INSTRUMENT}")
     driver = build_driver(INSTRUMENT)
-    smu_dir = OUTPUT_DIR / INSTRUMENT / "6705"
+    smu_dir = OUTPUT_DIR / INSTRUMENT / "kasia_31108"
     smu_dir.mkdir(parents=True, exist_ok=True)
 
     # 1) Connect in CURRENT-SOURCE mode (set Idrive=0, monitor Voc)

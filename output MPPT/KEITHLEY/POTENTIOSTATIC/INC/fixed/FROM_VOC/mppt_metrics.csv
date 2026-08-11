@@ -1,2 +1,0 @@
-Instrument,Method,Orientation,Approach,SampleArea(cm²),P_in(mW/cm²),T_total(s),V_MPP(V),J_MPP(mA/cm²),P_MPP(mW),PCE_max(%),N_cycles
-KEITHLEY,fixed,FROM_VOC,POTENTIOSTATIC,5,100,60,0.8572129999999998,-2.1973872795031055,9.418144710123476,1.883628942024695,30

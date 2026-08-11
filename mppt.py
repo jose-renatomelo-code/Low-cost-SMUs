@@ -13,7 +13,7 @@ except ImportError:  # scipy optional: only needed for the "fitting" method
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # CONFIGURATION  –  INSTRUMENT, METHOD AND MPPT PARAMETERS
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-INSTRUMENT = "ADALM1000"   # "USMU" | "KEITHLEY" | "ADALM1000" | "AD3"
+INSTRUMENT = "KEITHLEY"   # "USMU" | "KEITHLEY" | "ADALM1000" | "AD3"
 OUTPUT_DIR  = Path("output MPPT")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
@@ -23,7 +23,7 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 #   "fixed"   -> wait a fixed dwell time (T_DWELL) and use the average
 #   "fitting" -> wait T_DWELL and extrapolate the steady-state current
 #                via double-exponential transient fit
-METHOD = "fixed"               # "cv" / "fitting" / "fixed"
+METHOD = "cv"               # "cv" / "fitting" / "fixed"
 CV_WINDOW = 20              # number of samples in the sliding CV window
 MIN_CV = 0.1              # maximum CV (0.1%) to consider steady state
 
@@ -40,20 +40,20 @@ ORIENTATION = "FORWARD"     # "FORWARD" / "REVERSE" / "FROM_VOC"
 APPROACH = "POTENTIOSTATIC"   # "POTENTIOSTATIC" / "GALVANOSTATIC"
 
 # INC method
-epsilon = 0.6e-3   # dead band for INC logic
+epsilon = 1e-4   # dead band for INC logic
 It = 1e-3     # current limit to leave MPP (mA)
 
 # ── MPPT Parameters (Perturb & Observe) ───────────────────────────────────
-V_START    = 0.7    # V  – initial tracking voltage
+V_START    = 0.6    # V  – initial tracking voltage
 I_START    =-29.1e-3    # A  - initial galvanostatic MPPT current (±10mA para ADALM1000)
 T_DWELL    = 2       # s  – tempo de dwell (métodos "fixed" / "fitting")
-LARGE_STEP = 0.1     # V  – perturbation step during EXPLORATION phase
-SMALL_STEP = 0.05    # V  – perturbation step during REFINEMENT phase (near MPP)
+LARGE_STEP = 0.05     # V  – perturbation step during EXPLORATION phase
+SMALL_STEP = 0.01    # V  – perturbation step during REFINEMENT phase (near MPP)
 LARGE_I_STEP = 1e-3  # I – perturbation step during EXPLORATION phase no modo galvanostático
 SMALL_I_STEP = 0.5e-3# I – perturbation step during EXPLORATION phase no modo galvanostático
 SAMPLE_AREA = 0.16      # cm²
 P_IN       = 100     # mW/cm²  – irradiância incidente (para o cálculo de PCE)
-T_TOTAL    = 20      # s  – duração total do rastreamamento
+T_TOTAL    = 100      # s  – duração total do rastreamamento
 TIMEOUT    = 15      # s  – tempo máximo de espera por estado estacionário (método "cv")
 MIN_CYCLE_TIME = 0.05  # s  – tempo mínimo por ciclo (evita loop vazio em hardware rápido)
 
@@ -580,6 +580,8 @@ def plot_and_save(raw_df, po_df, mpp, smu_dir, instrument, method):
         ax.set_xlabel("PO Cycle")
     elif LOGIC == "INC":
         ax.set_xlabel("INC Cycle")
+    elif LOGIC == "PSO":
+        ax.set_xlabel("PSO Cycle")
 
     ax.set_ylabel("PCE (%)")
     ax.set_title(f"MPPT Tracking Convergence — {instrument} [{method}]")
@@ -611,7 +613,7 @@ def plot_and_save(raw_df, po_df, mpp, smu_dir, instrument, method):
 def main():
     print(f"\nConnecting to instrument: {INSTRUMENT}")
     driver = build_driver(INSTRUMENT)
-    smu_dir = OUTPUT_DIR / INSTRUMENT / "kasia_3" / APPROACH / LOGIC / METHOD / ORIENTATION
+    smu_dir = OUTPUT_DIR / INSTRUMENT / "kasia_3_1108" / APPROACH / LOGIC / METHOD / ORIENTATION
     smu_dir.mkdir(parents=True, exist_ok=True)
 
     if APPROACH == "POTENTIOSTATIC":
@@ -667,10 +669,10 @@ def main():
 
     # Initialize PSO state
     pso = MPPT_PSO(
-        v_min=4.0, v_max=5.0,
-        n_particles=5,
-        max_iterations=20,
-        stagnation_patience=4,
+        v_min=0.6, v_max=1.0,
+        n_particles=4,
+        max_iterations=15,
+        stagnation_patience=3,
         v_step_max_frac=0.25,
         w_max=0.9, w_min=0.4,
         c1=2.0, c2=2.0,
@@ -827,8 +829,8 @@ def analyse_single_transient(file_path=None):
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
     
     for i_ax, (cyc, ax, title_suffix, color, text_y) in enumerate([
-        (15, ax1, "Degrau Positivo", "#1f77b4", 0.45),
-        (16, ax2, "Degrau Negativo", "#2ca02c", 0.95)
+        (15, ax1, "Positive Step", "#1f77b4", 0.50),
+        (16, ax2, "Negative Step", "#2ca02c", 0.50)
     ]):
         cyc_df = df[df["cycle"] == cyc]
         if cyc_df.empty:
@@ -844,19 +846,20 @@ def analyse_single_transient(file_path=None):
         
         # Coeficiente de variação (CV) dos últimos 20 pontos
         last_20_i = i[-20:]
+        i_mean = np.mean(last_20_i)
         cv = np.std(last_20_i) / np.abs(np.mean(last_20_i)) if len(last_20_i) else np.nan
         
         # Ajuste bi-exponencial
         fit_params = double_exp_fitting(t_rel, i)
         
         # Plot dos dados experimentais
-        ax.scatter(t_rel, i * 1000, color=color, label="Dados Experimentais", s=25, alpha=0.8, edgecolors="none")
+        ax.scatter(t_rel, i * 1000, color=color, label="Experimental Data", s=25, alpha=0.8, edgecolors="none")
         
         if fit_params[0] is not None:
             # Traçar a curva de ajuste
             t_fit = np.linspace(0, t_rel[-1], 200)
             i_fit = double_exp_func(t_fit, *fit_params[:-1])
-            ax.plot(t_fit, i_fit * 1000, color="#d62728", label="Ajuste Bi-Exponencial")
+            ax.plot(t_fit, i_fit * 1000, color="#d62728", label="Bi-Exponential Fit")
             
             # Anotação com os parâmetros do ajuste
             a1, t1, a2, t2, c, r2 = fit_params
@@ -865,6 +868,7 @@ def analyse_single_transient(file_path=None):
                 r'$\tau_1 = %.3f\ \mathrm{ms}$' % (t1 * 1000),
                 r'$a_2 = %.3e\ \mathrm{A}$' % a2,
                 r'$\tau_2 = %.3f\ \mathrm{s}$' % t2,
+                r'$I_{mean} = %.3f\ \mathrm{mA}$' % (i_mean * 1000),
                 r'$I_{ss} = %.3f\ \mathrm{mA}$' % (c * 1000),
                 r'$R^2 = %.4f$' % r2,
                 r'$\mathrm{CV}_{20} = %.4f\%%$' % (cv * 100)
@@ -873,15 +877,15 @@ def analyse_single_transient(file_path=None):
             textstr = r'$\mathrm{CV}_{20} = %.4f\%%$' % (cv * 100)
             
         props = dict(boxstyle='round', facecolor='white', alpha=0.8, edgecolor='#cccccc')
-        ax.text(0.45, text_y, textstr, transform=ax.transAxes, fontsize=10,
+        ax.text(0.65, text_y, textstr, transform=ax.transAxes, fontsize=10,
                 verticalalignment='top', bbox=props)
                 
         # Detalhes do gráfico
         v_start = df[df["cycle"] == (cyc - 1)]["voltage(V)"].iloc[-1] if cyc > 0 and not df[df["cycle"] == (cyc - 1)].empty else v[0]
         v_end = v[0]
-        ax.set_xlabel("Tempo Relativo (s)")
-        ax.set_ylabel("Corrente (mA)")
-        ax.set_title(f"{title_suffix} (Ciclo {cyc}: {v_start:.3f}V → {v_end:.3f}V)")
+        ax.set_xlabel("Relative Time (s)")
+        ax.set_ylabel("Current (mA)")
+        ax.set_title(f"{title_suffix} (Cycle {cyc}: {v_start:.3f}V → {v_end:.3f}V)")
         ax.legend(loc="best")
         
         # Print resumido no console
@@ -909,8 +913,4 @@ def analyse_single_transient(file_path=None):
 
 
 if __name__ == "__main__":
-    import sys
-    if len(sys.argv) > 1 and sys.argv[1] == "--analyse":
-        analyse_single_transient()
-    else:
-        main()
+    main()

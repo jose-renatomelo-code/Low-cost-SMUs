@@ -1,2 +1,0 @@
-Instrument,Method,Orientation,Approach,SampleArea(cm²),P_in(mW/cm²),T_total(s),V_MPP(V),J_MPP(mA/cm²),P_MPP(mW),PCE_max(%),N_cycles
-ADALM1000,cv,FORWARD,POTENTIOSTATIC,5,100,60,0.8095346487164498,-2.8007742331141516,11.336618924690743,2.267323784938149,10

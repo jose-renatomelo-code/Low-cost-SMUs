@@ -272,10 +272,10 @@ def plot_smu_benchmark(df_all):
         smu = r["smu"]
         tr = r["df_tr"]
         color = SMU_COLORS.get(smu, "#333333")
-        ax_pce.plot(tr["time(s)"], tr["PCE(%)"], label=smu, color=color, lw=2.0, marker="s", ms=4)
+        ax_pce.plot(tr["time(s)"], tr["power(mW)"], label=smu, color=color, lw=2.0, marker="s", ms=4)
     ax_pce.set_xlabel("Tracking Time (s)", fontsize=11, fontweight="bold")
-    ax_pce.set_ylabel("PCE (%)", fontsize=11, fontweight="bold")
-    ax_pce.set_title("B) PCE Convergence Profile Comparison", fontsize=11, loc="left", fontweight="bold")
+    ax_pce.set_ylabel("Power (mW)", fontsize=11, fontweight="bold")
+    ax_pce.set_title("B) Power Convergence Profile Comparison", fontsize=11, loc="left", fontweight="bold")
     ax_pce.grid(True)
     ax_pce.legend(frameon=True, facecolor="white", edgecolor="none")
 
@@ -518,7 +518,7 @@ def generate_statistical_report(df_all):
     print("=" * 90 + "\n")
 
 
-def main():
+def amain():
     print("Iniciando análise comparativa e geração de gráficos de MPPT...")
     df_all = load_all_mppt_data()
 
@@ -537,6 +537,10 @@ def main():
     # 2. Generate Statistical Report
     generate_statistical_report(df_all)
     print("Análise concluída com sucesso!")
+
+def main():
+    df_all = load_all_mppt_data()
+    plot_smu_benchmark(df_all)
 
 
 if __name__ == "__main__":
