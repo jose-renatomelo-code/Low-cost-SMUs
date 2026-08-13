@@ -52,7 +52,7 @@ class ADALM1000_Driver:
         self._chan_a             = None
         self._chan_b             = None
         self._i_offset           = 0.0      # measured DC current offset (A)
-        self._n_samples          = 500     # samples per get_samples() call (fixed)
+        self._n_samples          = 100     # samples per get_samples() call (fixed)
         self._sample_rate        = 100000   # Sa/s (sweep param)
         self._integration_time_s = 0.05    # averaging window per measurement
 
@@ -133,13 +133,13 @@ class ADALM1000_Driver:
     def set_voltage_and_measure(self, voltage: float) -> tuple[float, float]:
         self._chan_a.mode = Mode.SVMI
         self._chan_a.constant(voltage)
-        self._settle()
+        #self._settle()
         return self.measure()
 
     def set_current_and_measure(self, current: float):
         self._chan_a.mode = Mode.SIMV
         self._chan_a.constant(current)
-        self._settle()
+        #self._settle()
         return self.measure()
 
     def measure(self) -> tuple[float, float]:
