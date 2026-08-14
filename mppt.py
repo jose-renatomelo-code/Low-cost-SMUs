@@ -13,7 +13,7 @@ except ImportError:  # scipy optional: only needed for the "fitting" method
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # CONFIGURATION  –  INSTRUMENT, METHOD AND MPPT PARAMETERS
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-INSTRUMENT = "ADALM1000"   # "USMU" | "KEITHLEY" | "ADALM1000" | "AD3"
+INSTRUMENT = "ADALM1000"   # "USMU" | "KEITHLEY" | "ADALM1000" | "AD3" | "MULTI_ADALM1000"
 OUTPUT_DIR  = Path("output MPPT")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
@@ -48,10 +48,10 @@ V_START    = 0.5    # V  – initial tracking voltage
 I_START    =-29.1e-3    # A  - initial galvanostatic MPPT current (±10mA para ADALM1000)
 T_DWELL    = 2       # s  – tempo de dwell (métodos "fixed" / "fitting")
 LARGE_STEP = 0.1     # V  – perturbation step during EXPLORATION phase
-SMALL_STEP = 0.05    # V  – perturbation step during REFINEMENT phase (near MPP)
+SMALL_STEP = 0.1    # V  – perturbation step during REFINEMENT phase (near MPP)
 LARGE_I_STEP = 1e-3  # I – perturbation step during EXPLORATION phase no modo galvanostático
 SMALL_I_STEP = 0.5e-3# I – perturbation step during EXPLORATION phase no modo galvanostático
-SAMPLE_AREA = 25      # cm²
+SAMPLE_AREA = 0.16      # cm²
 P_IN       = 100     # mW/cm²  – irradiância incidente (para o cálculo de PCE)
 T_TOTAL    = 30      # s  – duração total do rastreamamento
 TIMEOUT    = 15      # s  – tempo máximo de espera por estado estacionário (método "cv")
@@ -496,7 +496,6 @@ class MPPT_PSO:
 
         return self.gbest_pos
 
-
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # PLOT E SAVE (salva os dados brutos + resumo do tracking + figuras)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -613,7 +612,7 @@ def plot_and_save(raw_df, po_df, mpp, smu_dir, instrument, method):
 def main():
     print(f"\nConnecting to instrument: {INSTRUMENT}")
     driver = build_driver(INSTRUMENT)
-    smu_dir = OUTPUT_DIR / INSTRUMENT / "kasia_3_1308" / APPROACH / LOGIC / METHOD / ORIENTATION
+    smu_dir = OUTPUT_DIR / INSTRUMENT / "kasia_3_1408" / APPROACH / LOGIC / METHOD / ORIENTATION
     smu_dir.mkdir(parents=True, exist_ok=True)
 
     if APPROACH == "POTENTIOSTATIC":

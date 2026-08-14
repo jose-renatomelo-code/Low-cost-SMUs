@@ -40,60 +40,115 @@ CURRENT_RANGES = [1e-6, 10e-6, 100e-6, 1e-3, 10e-3, 100e-3, 1.0]
 class ADALM1000_Driver:
     """ Simple ADALM1000 (pysmu) driver handling SMU logic.
 
-    The sweep parameter is the **sample rate**, set via `session.configure()`
-    (see ADALM1000_SR). The number of samples fetched per `get_samples()` call
-    is kept fixed at 1000; varying the sample rate changes the per-call duration
-    and thus the effective acquisition sample rate (analogous to NPLC/OSR).
+    Supports connecting via `device_index` or device `serial` number, as well
+    as sharing an existing `pysmu.Session` across multiple driver instances.
     """
-    def __init__(self, device_index: int = 0):
+    def __init__(self, device_index: int = 0, serial: str = None, session = None):
         self.device_index        = device_index
-        self._session            = None
+        self.serial              = serial
+        self.device_id           = f"M1K_dev{device_index}"
+        self._session            = session
+        self._owns_session       = (session is None)
         self._device             = None
         self._chan_a             = None
         self._chan_b             = None
-        self._i_offset           = 0.0      # measured DC current offset (A)
-        self._n_samples          = 100     # samples per get_samples() call (fixed)
+        self._i_offset           = 0.0      # measured DC current offset channel A (A)
+        self._i_offset_b         = 0.0      # measured DC current offset channel B (A)
+        self._n_samples          = 1000     # samples per get_samples() call (fixed)
         self._sample_rate        = 100000   # Sa/s (sweep param)
-        self._integration_time_s = 0.05    # averaging window per measurement
+        self._integration_time_s = 0.03    # averaging window per measurement
+        self._last_v_a           = None
+        self._last_v_b           = None
+
+    @staticmethod
+    def list_devices() -> list[dict]:
+        """Discover and list all connected ADALM1000 devices."""
+        if Session is None:
+            print("pysmu package not found.")
+            return []
+        try:
+            sess = Session()
+            info = []
+            for idx, dev in enumerate(sess.devices):
+                dev_serial = getattr(dev, "serial", f"dev_{idx}")
+                info.append({"index": idx, "serial": dev_serial, "label": f"M1K_dev{idx}_{dev_serial[:6]}"})
+            sess.end()
+            return info
+        except Exception as e:
+            print(f"Error listing ADALM1000 devices: {e}")
+            return []
 
     def connect(self, curr_sour=False):
         if Session is None:
             raise ImportError("pysmu package not found.")
-        print(f"Opening pysmu Session (device_index={self.device_index})")
-        self._session = Session()
-        assert len(self._session.devices) > self.device_index, (
-            f"ADALM1000 device_index={self.device_index} not found. "
-            f"Devices connected: {len(self._session.devices)}"
-        )
-        self._device = self._session.devices[self.device_index]
+
+        if self._owns_session and self._session is None:
+            print(f"Opening pysmu Session for device_index={self.device_index}")
+            self._session = Session()
+
+        assert len(self._session.devices) > 0, "No ADALM1000 devices found connected."
+
+        # Locate target device by serial or device_index
+        target_dev = None
+        if self.serial:
+            for d in self._session.devices:
+                if getattr(d, "serial", "") == self.serial:
+                    target_dev = d
+                    break
+            assert target_dev is not None, f"ADALM1000 device with serial '{self.serial}' not found."
+        else:
+            assert len(self._session.devices) > self.device_index, (
+                f"ADALM1000 device_index={self.device_index} not found. "
+                f"Devices connected: {len(self._session.devices)}"
+            )
+            target_dev = self._session.devices[self.device_index]
+
+        self._device = target_dev
         self._device.ignore_dataflow = True
         self._chan_a = self._device.channels["A"]
-        # On the ADALM1000 each channel is a source-measure unit:
-        # - SVMI mode: Source Voltage, Measure Current (para MPPT potenziostático)
-        # - SIMV mode: Source Current, Measure Voltage (para MPPT galvânico)
-        if curr_sour:
-            self._chan_a.mode = Mode.SIMV
-            self._chan_a.constant(0.0)  # 0 A como ponto inicial
-        else:
-            self._chan_a.mode = Mode.SVMI
-            self._chan_a.constant(0.0)  # 0 V como ponto inicial
-        self._device.channels["B"].mode = Mode.HI_Z
-        for _ in range(N_SETTLE_CALLS):
-            self._device.get_samples(1000)
+        self._chan_b = self._device.channels["B"]
 
-        print(f"ADALM1000 connected (device {self.device_index}, curr_sour={curr_sour})")
+        dev_serial = getattr(self._device, "serial", f"dev_{self.device_index}")
+        self.device_id = f"M1K_dev{self.device_index}_{dev_serial[:6]}"
+
+        if curr_sour:
+            if self._chan_a.mode != Mode.SIMV:
+                self._chan_a.mode = Mode.SIMV
+            if self._chan_b.mode != Mode.SIMV:
+                self._chan_b.mode = Mode.SIMV
+            self._chan_a.constant(0.0)
+            self._chan_b.constant(0.0)
+        else:
+            if self._chan_a.mode != Mode.SVMI:
+                self._chan_a.mode = Mode.SVMI
+            if self._chan_b.mode != Mode.HI_Z:
+                self._chan_b.mode = Mode.HI_Z
+            self._chan_a.constant(0.0)
+            self._chan_b.constant(0.0)
+        self._last_v_a = 0.0
+        self._last_v_b = 0.0
+
+        # Discard initial settling samples before capturing DC current offset
+        self._settle()
+
+        samples = self._device.get_samples(1000)
+        i_offset_a = [s[0][1] for s in samples]
+        self._i_offset   = float(np.nanmean(i_offset_a))
+        self._i_offset = 0
+
+        print(f"ADALM1000 [{self.device_id}] connected (index={self.device_index}, curr_sour={curr_sour}),"
+              f" i_offset_A={self._i_offset:.6e} A")
 
     def disconnect(self):
         if self._chan_a is not None:
             try:
-                # Return to SVMI 0V before ending session
                 self._chan_a.mode = Mode.SVMI
                 self._chan_a.constant(0.0)
                 for _ in range(N_SETTLE_CALLS):
                     self._device.get_samples(1000)
             except Exception:
                 pass
-        if self._session is not None:
+        if self._owns_session and self._session is not None:
             try:
                 self._session.end()
             except Exception:
@@ -102,20 +157,21 @@ class ADALM1000_Driver:
         self._device  = None
         self._chan_a  = None
         self._chan_b  = None
-        print("ADALM1000 disconnected")
+        self._last_v_a = None
+        self._last_v_b = None
+        print(f"ADALM1000 [{self.device_id}] disconnected")
 
     # -- sweep configuration --------------------------------------------------
     def configure_integration(self, sample_rate: int):
         """Set the acquisition sample rate (sweep param) via session.configure()."""
         self._sample_rate = int(sample_rate)
-        self._session.configure(self._sample_rate)
-        print(f"ADALM1000: sample_rate={self._sample_rate} Sa/s "
-              f"(~{self._n_samples/self._sample_rate*1e3:.2f} ms per "
-              f"get_samples({self._n_samples}))")
+        if self._session is not None:
+            self._session.configure(self._sample_rate)
+        print(f"ADALM1000 [{self.device_id}]: sample_rate={self._sample_rate} Sa/s")
 
     def configure(self, integration_time_s: float = 0.05, **kwargs):
         self._integration_time_s = integration_time_s
-        print(f"ADALM1000: integration_time_s={integration_time_s}s")
+        print(f"ADALM1000 [{self.device_id}]: integration_time_s={integration_time_s}s")
 
     def _settle(self):
         for _ in range(N_SETTLE_CALLS):
@@ -126,42 +182,194 @@ class ADALM1000_Driver:
         t0 = time.perf_counter()
         all_i = []
         samples = self._device.get_samples(self._n_samples)
-        # sample = [chA_sample, chB_sample]; chA[1] = current through channel A
         all_i.extend([s[0][1] for s in samples])
         return float(np.nanmean(all_i))
 
     def set_voltage_and_measure(self, voltage: float) -> tuple[float, float]:
-        self._chan_a.mode = Mode.SVMI
-        self._chan_a.constant(voltage)
-        #self._settle()
+        if self._chan_a.mode != Mode.SVMI:
+            self._chan_a.mode = Mode.SVMI
+        if self._last_v_a != voltage:
+            self._chan_a.constant(voltage)
+            self._last_v_a = voltage
         return self.measure()
 
     def set_current_and_measure(self, current: float):
-        self._chan_a.mode = Mode.SIMV
-        self._chan_a.constant(current)
-        #self._settle()
+        if self._chan_a.mode != Mode.SIMV:
+            self._chan_a.mode = Mode.SIMV
+        if self._last_v_a != current:
+            self._chan_a.constant(current)
+            self._last_v_a = current
         return self.measure()
 
     def measure(self) -> tuple[float, float]:
-        """Average several get_samples() calls for `integration_time_s`.
-
-        Voltage and current are both read from channel A (the M1K SMU channel);
-        the DC offset measured at connect() is subtracted from the current.
-
-        Sign convention: the ADALM1000 in SVMI reports the current as *leaving*
-        the channel (positive when sourcing). For a solar cell the generated
-        photocurrent flows *into* the channel, so we negate it to match the
-        USMU/Keithley convention (negative current for a generator).
-        """
-        t0     = time.perf_counter()
-        all_v, all_i = [], []
-        # Guarantee at least one acquisition even for a zero-length window.
+        """Average several get_samples() calls for `integration_time_s`."""
         samples = self._device.get_samples(self._n_samples)
-        all_v.extend([s[0][0] for s in samples])
-        all_i.extend([s[0][1] for s in samples])
+        all_v = [s[0][0] for s in samples]
+        all_i = [s[0][1] for s in samples]
         v_avg = float(np.nanmean(all_v))
-        i_avg = float(np.nanmean(all_i))
+        i_avg = float(np.nanmean(all_i)) - self._i_offset
         return v_avg, i_avg
+
+    def measure_both(self) -> tuple[float, float, float, float]:
+        """Measure both channels A and B simultaneously."""
+        samples = self._device.get_samples(self._n_samples)
+        all_va = np.fromiter((s[0][0] for s in samples), dtype=float)
+        all_ia = np.fromiter((s[0][1] for s in samples), dtype=float)
+        all_vb = np.fromiter((s[1][0] for s in samples), dtype=float)
+        all_ib = np.fromiter((s[1][1] for s in samples), dtype=float)
+
+        v_a = float(np.nanmean(all_va))
+        i_a = float(np.nanmean(all_ia)) - self._i_offset
+        v_b = float(np.nanmean(all_vb))
+        i_b = float(np.nanmean(all_ib)) - self._i_offset_b
+        return v_a, i_a, v_b, i_b
+
+    def set_voltage_both_and_measure(self, voltage: float) -> tuple[float, float, float, float]:
+        """Apply the same voltage on both channels A and B (SVMI) and measure."""
+        return self.set_channel_voltages_and_measure(voltage, voltage)
+
+    def set_channel_voltages_and_measure(self, v_a: float, v_b: float) -> tuple[float, float, float, float]:
+        """Apply independent voltages on channels A and B (SVMI) and measure."""
+        if self._chan_a.mode != Mode.SVMI:
+            self._chan_a.mode = Mode.SVMI
+        if self._chan_b.mode != Mode.SVMI:
+            self._chan_b.mode = Mode.SVMI
+
+        if self._last_v_a != v_a:
+            self._chan_a.constant(v_a)
+            self._last_v_a = v_a
+        if self._last_v_b != v_b:
+            self._chan_b.constant(v_b)
+            self._last_v_b = v_b
+
+        return self.measure_both()
+
+class MultiADALM1000_Driver:
+    """ Driver managing multiple connected ADALM1000 devices simultaneously
+    under a shared pysmu Session.
+
+    Parameters
+    ----------
+    device_indices : list[int], optional
+        List of device indices to connect (e.g. [0, 1]).
+    serials : list[str], optional
+        List of device serial numbers to connect. If neither is specified,
+        connects ALL connected ADALM1000 devices found on the system.
+    """
+    def __init__(self, device_indices: list[int] = None, serials: list[str] = None):
+        self.device_indices = device_indices
+        self.serials = serials
+        self._session = None
+        self.devices: dict[str, ADALM1000_Driver] = {}  # key: device_id, val: ADALM1000_Driver
+
+    def connect(self, curr_sour=False):
+        if Session is None:
+            raise ImportError("pysmu package not found.")
+
+        print("Opening pysmu Multi-Device Session...")
+        self._session = Session()
+        available = self._session.devices
+        assert len(available) > 0, "No ADALM1000 devices found."
+        print(f"Discovered {len(available)} connected ADALM1000 device(s).")
+
+        # Determine which devices to open
+        targets = []  # list of (index, serial)
+        if self.serials:
+            for s in self.serials:
+                idx = next((i for i, dev in enumerate(available) if getattr(dev, "serial", "") == s), None)
+                if idx is not None:
+                    targets.append((idx, s))
+                else:
+                    print(f"Warning: device with serial '{s}' not found.")
+        elif self.device_indices:
+            for idx in self.device_indices:
+                if idx < len(available):
+                    dev_serial = getattr(available[idx], "serial", f"dev_{idx}")
+                    targets.append((idx, dev_serial))
+                else:
+                    print(f"Warning: device_index={idx} not found (only {len(available)} available).")
+        else:
+            # Default: connect all available devices
+            for idx, dev in enumerate(available):
+                dev_serial = getattr(dev, "serial", f"dev_{idx}")
+                targets.append((idx, dev_serial))
+
+        assert len(targets) > 0, "No valid target ADALM1000 devices to connect."
+
+        for idx, ser in targets:
+            drv = ADALM1000_Driver(device_index=idx, serial=ser, session=self._session)
+            drv.connect(curr_sour=curr_sour)
+            self.devices[drv.device_id] = drv
+
+        print(f"MultiADALM1000: connected {len(self.devices)} device(s): {list(self.devices.keys())}")
+
+    def configure_integration(self, sample_rate: int):
+        """Set sample rate across all devices via the shared pysmu Session."""
+        if self._session is not None:
+            self._session.configure(int(sample_rate))
+        for drv in self.devices.values():
+            drv._sample_rate = int(sample_rate)
+
+    def set_voltage_all_and_measure(self, voltage: float) -> dict[str, tuple[float, float, float, float]]:
+        """Set voltage setpoint on both channels for all connected devices and measure."""
+        v_dict = {dev_id: (voltage, voltage) for dev_id in self.devices.keys()}
+        return self.set_channel_voltages_all_and_measure(v_dict)
+
+    def set_channel_voltages_all_and_measure(self, v_dict: dict) -> dict[str, tuple[float, float, float, float]]:
+        """Set independent voltages per device/channel and measure.
+
+        v_dict: dict mapping dev_id -> (v_a, v_b)
+        returns dict mapping dev_id -> (v_a_meas, i_a_meas, v_b_meas, i_b_meas)
+        """
+        for dev_id, drv in self.devices.items():
+            v_a, v_b = v_dict.get(dev_id, (0.0, 0.0))
+            if drv._chan_a.mode != Mode.SVMI:
+                drv._chan_a.mode = Mode.SVMI
+            if drv._chan_b.mode != Mode.SVMI:
+                drv._chan_b.mode = Mode.SVMI
+
+            if drv._last_v_a != v_a:
+                drv._chan_a.constant(v_a)
+                drv._last_v_a = v_a
+            if drv._last_v_b != v_b:
+                drv._chan_b.constant(v_b)
+                drv._last_v_b = v_b
+
+        results = {}
+        for dev_id, drv in self.devices.items():
+            results[dev_id] = drv.measure_both()
+        return results
+
+    def set_voltage_channel_a_all_and_measure(self, v_dict: dict) -> dict[str, tuple[float, float]]:
+        """Set voltage on Channel A for each connected device and measure Channel A (V_A, I_A).
+
+        v_dict: dict mapping dev_id -> v_a
+        returns dict mapping dev_id -> (v_a_meas, i_a_meas)
+        """
+        for dev_id, drv in self.devices.items():
+            v_a = v_dict.get(dev_id, 0.0)
+            if drv._chan_a.mode != Mode.SVMI:
+                drv._chan_a.mode = Mode.SVMI
+            if drv._last_v_a != v_a:
+                drv._chan_a.constant(v_a)
+                drv._last_v_a = v_a
+
+        results = {}
+        for dev_id, drv in self.devices.items():
+            results[dev_id] = drv.measure()
+        return results
+
+    def disconnect(self):
+        for drv in self.devices.values():
+            drv.disconnect()
+        if self._session is not None:
+            try:
+                self._session.end()
+            except Exception:
+                pass
+            self._session = None
+        self.devices.clear()
+        print("MultiADALM1000 disconnected")
 
 class USMU_Driver:
     """Thin wrapper around the usmu_py USMU object."""
