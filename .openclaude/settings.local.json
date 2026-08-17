@@ -47,7 +47,10 @@
       "Bash(sed -i 's/potência da janela anterior \\(abs, mW\\)/previous window power \\(abs, mW\\)/' mppt.py)",
       "Bash(sed -i 's/Gera CSVs e figuras científicas do rastreamento MPPT/Generate CSVs and scientific plots for MPPT tracking/' mppt.py)",
       "Bash(sed -i 's/convergência ao MPP/convergence to MPP/' mppt.py)",
-      "Bash(sed -i 's/un ponto por ciclo PO/one data point per PO cycle/' mppt.py)"
+      "Bash(sed -i 's/un ponto por ciclo PO/one data point per PO cycle/' mppt.py)",
+      "Read(//c/Users/hyd-laptop/AppData/Local/Programs/Python//**)",
+      "Bash(ls /c/Python*)",
+      "Read(//c/Users/hyd-laptop/AppData/Local/**)"
     ]
   }
 }

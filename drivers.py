@@ -125,8 +125,8 @@ class ADALM1000_Driver:
                 self._chan_b.mode = Mode.HI_Z
             self._chan_a.constant(0.0)
             self._chan_b.constant(0.0)
-        self._last_v_a = 0.0
-        self._last_v_b = 0.0
+        self._last_v_a = None
+        self._last_v_b = None
 
         # Discard initial settling samples before capturing DC current offset
         self._settle()
@@ -176,6 +176,14 @@ class ADALM1000_Driver:
     def _settle(self):
         for _ in range(N_SETTLE_CALLS):
             self._device.get_samples(self._n_samples)
+
+    def blink_led(self, on_off_time, n_blinks):
+        for _ in range(n_blinks):
+            time.sleep(on_off_time)
+            self._device.set_led(0b010)
+            time.sleep(on_off_time)
+            self._device.set_led(0b001)
+
 
     def _measure_raw_i(self) -> float:
         """Raw current reading from channel A (CHA reports its own current in SVMI)."""

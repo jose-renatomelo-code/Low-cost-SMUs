@@ -16,6 +16,7 @@ except ImportError:  # scipy optional: only needed for the "fitting" method
 INSTRUMENT = "ADALM1000"   # "USMU" | "KEITHLEY" | "ADALM1000" | "AD3" | "MULTI_ADALM1000"
 OUTPUT_DIR  = Path("output MPPT")
 OUTPUT_DIR.mkdir(exist_ok=True)
+DEVICE_NAME = "KASIA_1708"
 
 # Acquisition method / steady-state determination:
 #   "cv"      -> sample until the current coefficient of variation (CV) drops
@@ -23,7 +24,7 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 #   "fixed"   -> wait a fixed dwell time (T_DWELL) and use the average
 #   "fitting" -> wait T_DWELL and extrapolate the steady-state current
 #                via double-exponential transient fit
-METHOD = "fixed"               # "cv" / "fitting" / "fixed"
+METHOD = "cv"               # "cv" / "fitting" / "fixed"
 CV_WINDOW = 20              # number of samples in the sliding CV window
 MIN_CV = 0.1              # maximum CV (0.1%) to consider steady state
 
@@ -612,7 +613,7 @@ def plot_and_save(raw_df, po_df, mpp, smu_dir, instrument, method):
 def main():
     print(f"\nConnecting to instrument: {INSTRUMENT}")
     driver = build_driver(INSTRUMENT)
-    smu_dir = OUTPUT_DIR / INSTRUMENT / "kasia_3_1408" / APPROACH / LOGIC / METHOD / ORIENTATION
+    smu_dir = OUTPUT_DIR / INSTRUMENT / DEVICE_NAME / APPROACH / LOGIC / METHOD / ORIENTATION
     smu_dir.mkdir(parents=True, exist_ok=True)
 
     if APPROACH == "POTENTIOSTATIC":
