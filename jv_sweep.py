@@ -8,20 +8,20 @@ import time
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # INSTRUMENT SELECTION AND OUTPUT PATH  –  KEITHLEY / USMU / ADALM1000 / AD3
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-INSTRUMENT = "ADALM1000"   # "USMU" | "KEITHLEY" | "ADALM1000" | "AD3"
+INSTRUMENT = "KEITHLEY"   # "USMU" | "KEITHLEY" | "ADALM1000" | "AD3"
 OUTPUT_DIR  = Path("output JV")
 OUTPUT_DIR.mkdir(exist_ok=True)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # JV INITIAL PARAMETERS
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-SCAN_RATES = [10, 1]      # V/s
+SCAN_RATES = [10, 1, 0.1, 0.01]      # V/s
 N_LOOPS = 1
 SWEEP_MODE = "rev/fwd"               # "rev/fwd" | "fwd/rev"
 P_in = 100                           # mW/cm²
-SAMPLE_AREA = 1                       # cm²
+SAMPLE_AREA = 25                       # cm²
 N_POINTS = 121
 V_START = 0.0
-V_STOP  = 1.1
+V_STOP  = 7.2
 
 # SS (steady-state) criteria params
 VOC_WINDOW = 10
@@ -328,7 +328,7 @@ def write_outputs(df_full, metrics_summary, smu_dir, instrument):
 def main():
     print(f"\nConnecting to instrument: {INSTRUMENT}")
     driver = build_driver(INSTRUMENT)
-    smu_dir = OUTPUT_DIR / INSTRUMENT / "TANDEM_1708"
+    smu_dir = OUTPUT_DIR / INSTRUMENT / "MODULE-NORMAL_1908"
     smu_dir.mkdir(parents=True, exist_ok=True)
 
     # 1) Connect in CURRENT-SOURCE mode (set Idrive=0, monitor Voc)

@@ -13,10 +13,10 @@ except ImportError:  # scipy optional: only needed for the "fitting" method
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # CONFIGURATION  –  INSTRUMENT, METHOD AND MPPT PARAMETERS
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-INSTRUMENT = "ADALM1000"   # "USMU" | "KEITHLEY" | "ADALM1000" | "AD3" | "MULTI_ADALM1000"
+INSTRUMENT = "KEITHLEY"   # "USMU" | "KEITHLEY" | "ADALM1000" | "AD3" | "MULTI_ADALM1000"
 OUTPUT_DIR  = Path("output MPPT")
 OUTPUT_DIR.mkdir(exist_ok=True)
-DEVICE_NAME = "KASIA_1708"
+DEVICE_NAME = "MODULE-NORMAL_1908"
 
 # Acquisition method / steady-state determination:
 #   "cv"      -> sample until the current coefficient of variation (CV) drops
@@ -26,10 +26,10 @@ DEVICE_NAME = "KASIA_1708"
 #                via double-exponential transient fit
 METHOD = "cv"               # "cv" / "fitting" / "fixed"
 CV_WINDOW = 20              # number of samples in the sliding CV window
-MIN_CV = 0.1              # maximum CV (0.1%) to consider steady state
+MIN_CV = 0.05              # maximum CV (0.1%) to consider steady state
 
 # CORE MPPT LOGIC
-LOGIC = "PO"        # "PO" - Perturb and Observe, "INC" - Incremental Conductance or "PSO"
+LOGIC = "PSO"        # "PO" - Perturb and Observe, "INC" - Incremental Conductance or "PSO"
 
 # Initial step direction for Perturb & Observe algorithm:
 #   "FORWARD"    -> increase voltage (direction = +1)
@@ -45,16 +45,16 @@ epsilon = 1e-4   # dead band for INC logic
 It = 1e-3     # current limit to leave MPP (mA)
 
 # ── MPPT Parameters (Perturb & Observe) ───────────────────────────────────
-V_START    = 0.5    # V  – initial tracking voltage
+V_START    = 3.8    # V  – initial tracking voltage
 I_START    =-29.1e-3    # A  - initial galvanostatic MPPT current (±10mA para ADALM1000)
 T_DWELL    = 2       # s  – tempo de dwell (métodos "fixed" / "fitting")
 LARGE_STEP = 0.1     # V  – perturbation step during EXPLORATION phase
-SMALL_STEP = 0.1    # V  – perturbation step during REFINEMENT phase (near MPP)
+SMALL_STEP = 0.05    # V  – perturbation step during REFINEMENT phase (near MPP)
 LARGE_I_STEP = 1e-3  # I – perturbation step during EXPLORATION phase no modo galvanostático
 SMALL_I_STEP = 0.5e-3# I – perturbation step during EXPLORATION phase no modo galvanostático
-SAMPLE_AREA = 0.16      # cm²
+SAMPLE_AREA = 25      # cm²
 P_IN       = 100     # mW/cm²  – irradiância incidente (para o cálculo de PCE)
-T_TOTAL    = 30      # s  – duração total do rastreamamento
+T_TOTAL    = 100      # s  – duração total do rastreamamento
 TIMEOUT    = 15      # s  – tempo máximo de espera por estado estacionário (método "cv")
 MIN_CYCLE_TIME = 0.05  # s  – tempo mínimo por ciclo (evita loop vazio em hardware rápido)
 
@@ -669,12 +669,12 @@ def main():
 
     # Initialize PSO state
     pso = MPPT_PSO(
-        v_min=0.6, v_max=1.0,
-        n_particles=4,
-        max_iterations=15,
-        stagnation_patience=3,
-        v_step_max_frac=0.25,
-        w_max=0.9, w_min=0.4,
+        v_min=3.8, v_max=6.0,
+        n_particles=5,
+        max_iterations=10,
+        stagnation_patience=4,
+        v_step_max_frac=0.30,
+        w_max=0.8, w_min=0.2,
         c1=2.0, c2=2.0,
         rng_seed=42,
     )
