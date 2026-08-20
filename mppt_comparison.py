@@ -279,32 +279,33 @@ def plot_smu_benchmark(df_all):
     ax_pce.grid(True)
     ax_pce.legend(frameon=True, facecolor="white", edgecolor="none")
 
-    # 3. Panel C: Voltage Ripple / Noise (sigma_V in mV)
-    ax_rip = axes[1, 0]
-    smus_c = [r["smu"] for r in smu_runs]
-    ripples = [r["sigma_v_mV"] for r in smu_runs]
-    colors_c = [SMU_COLORS.get(s, "#333333") for s in smus_c]
-    bars_c = ax_rip.bar(smus_c, ripples, color=colors_c, width=0.5, edgecolor="#333333", lw=1.2)
-    ax_rip.set_ylabel(r"Voltage Ripple $\sigma_V$ (mV)", fontsize=11, fontweight="bold")
-    ax_rip.set_title(r"C) Steady-State Voltage Ripple $\sigma_V$", fontsize=11, loc="left", fontweight="bold")
-    ax_rip.grid(True, axis="y")
-    for bar in bars_c:
-        yval = bar.get_height()
-        ax_rip.text(bar.get_x() + bar.get_width() / 2.0, yval + 0.2, f"{yval:.2f} mV", ha="center", va="bottom",
-                    fontsize=10, fontweight="bold")
+    # 3. Panel C: Measured Current — uses df_raw (has current(A)); falls back to
+    #    j_current(mA/cm²) from df_tr if raw is not available.
+    ax_curr = axes[1, 0]
+    for r in smu_runs:
+        smu = r["smu"]
+        color = SMU_COLORS.get(smu, "#333333")
+        df_raw = r.get("df_raw")
+        if df_raw is not None and "current(A)" in df_raw.columns and "time(s)" in df_raw.columns:
+            t_plot = df_raw["time(s)"]
+            i_plot = df_raw["current(A)"] * 1e3  # A → mA
+        else:
+            # fallback: j_current already in mA/cm² — plot as proxy
+            tr = r["df_tr"]
+            t_plot = tr["time(s)"]
+            i_plot = tr["j_current(mA/cm²)"] if "j_current(mA/cm²)" in tr.columns else tr[
+                [c for c in tr.columns if "j_current" in c][0]]
+        ax_curr.plot(t_plot, i_plot, label=smu, color=color, lw=1.5, marker="s", ms=3, alpha=0.85)
+    ax_curr.set_xlabel("Tracking Time (s)", fontsize=11, fontweight="bold")
+    ax_curr.set_ylabel("Current (mA)", fontsize=11, fontweight="bold")
+    ax_curr.set_title("C) Measured Current Comparison", fontsize=11, loc="left", fontweight="bold")
+    ax_curr.grid(True)
+    ax_curr.legend(frameon=True, facecolor="white", edgecolor="none")
 
-    # 4. Panel D: MPPT Efficiency eta_MPPT (%)
-    ax_eta = axes[1, 1]
-    etas = [r["eta_mppt"] for r in smu_runs]
-    bars_d = ax_eta.bar(smus_c, etas, color=colors_c, width=0.5, edgecolor="#333333", lw=1.2)
-    ax_eta.set_ylabel(r"MPPT Efficiency $\eta_{MPPT}$ (%)", fontsize=11, fontweight="bold")
-    ax_eta.set_title(r"D) Overall MPPT Efficiency $\eta_{MPPT}$", fontsize=11, loc="left", fontweight="bold")
-    ax_eta.set_ylim(90, 101)
-    ax_eta.grid(True, axis="y")
-    for bar in bars_d:
-        yval = bar.get_height()
-        ax_eta.text(bar.get_x() + bar.get_width() / 2.0, yval + 0.2, f"{yval:.2f}%", ha="center", va="bottom",
-                    fontsize=10, fontweight="bold")
+    # Hide unused Panel D slot
+    axes[1, 1].set_visible(False)
+
+
 
     plt.suptitle("Hardware Benchmark: Keithley vs Low-Cost SMUs (ADALM1000 & USMU)", fontsize=14, fontweight="bold",
                  y=0.98)

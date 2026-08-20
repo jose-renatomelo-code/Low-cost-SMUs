@@ -30,7 +30,8 @@ MIN_CV = 0.05              # maximum CV (0.1%) to consider steady state
 
 # CORE MPPT LOGIC
 LOGIC = "PSO"        # "PO" - Perturb and Observe, "INC" - Incremental Conductance or "PSO"
-
+is_stability = True
+HOURLY_CHECK_INTERVAL = 3600 # 1h
 # Initial step direction for Perturb & Observe algorithm:
 #   "FORWARD"    -> increase voltage (direction = +1)
 #   "REVERSE"    -> decrease voltage  (direction = -1)
@@ -86,13 +87,11 @@ def double_exp_func(t, a1, a2, t1, t2, c):
     """Soma de duas exponenciais decrescentes + offset (estado estacionário)."""
     return a1 * np.exp(-t / t1) + a2 * np.exp(-t / t2) + c
 
-
 def calculate_r_squared(y_true, y_pred):
     """Coeficiente de determinação R² do ajuste."""
     ss_res = np.sum((y_true - y_pred) ** 2)
     ss_tot = np.sum((y_true - np.mean(y_true)) ** 2)
     return 1 - (ss_res / ss_tot) if ss_tot != 0 else np.nan
-
 
 def double_exp_fitting(xdata, ydata):
     """Ajusta a função bi-exponencial aos dados.
@@ -124,7 +123,6 @@ def double_exp_fitting(xdata, ydata):
     except Exception as e:
         print(f"[fitting] erro no ajuste bi-exponencial: {e}")
         return [None, None, None, None, None, None]
-
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # AQUISIÇÃO DE UMA JANELA (um passo do Perturb & Observe)
@@ -683,6 +681,10 @@ def main():
     print("Starting MPPT tracking...")
     cycle_start_time = time.perf_counter()
     cycle = 0
+    transient_counter = 0
+    last_check_point_h = 0
+    transient_finished = False
+
     try:
         while (time.perf_counter() - cycle_start_time) < T_TOTAL:
             cycle_t0 = time.perf_counter()
@@ -708,20 +710,59 @@ def main():
                 continue
 
             # Registra amostras brutas desta janela (tempo ABSOLUTO desde o início)
-            for tt, vv, ii in zip(t_win, v_win, i_win):
-                jj = ii * 1000.0 / SAMPLE_AREA
-                pp = abs(vv * ii * 1000.0)
-                pd_ = abs(vv * jj)
-                raw_records.append({
-                    "time(s)": float(tt) + (cycle_t0 - cycle_start_time),
-                    "cycle": cycle,
-                    "voltage(V)": float(vv),
-                    "current(A)": float(ii),
-                    "j_current(mA/cm²)": float(jj),
-                    "power(mW)": float(pp),
-                    "power_density(mW/cm²)": float(pd_),
-                    "method": METHOD,
-                })
+            t_elapsed = time.perf_counter() - cycle_start_time
+            current_hour = int(t_elapsed // HOURLY_CHECK_INTERVAL)
+
+            if is_stability:
+                # Se mudou de hora, inicia nova captura de 10 ciclos de transiente
+                if current_hour > last_check_point_h:
+                    last_check_point_h = current_hour
+                    transient_finished = False
+                    transient_counter = 0
+
+                # Salva os 10 ciclos de dados brutos para análise de transiente
+                if not transient_finished:
+                    for tt, vv, ii in zip(t_win, v_win, i_win):
+                        jj = ii * 1000.0 / SAMPLE_AREA
+                        pp = abs(vv * ii * 1000.0)
+                        pd_ = abs(vv * jj)
+                        raw_records.append({
+                            "time(s)": float(tt) + (cycle_t0 - cycle_start_time),
+                            "cycle": cycle,
+                            "voltage(V)": float(vv),
+                            "current(A)": float(ii),
+                            "j_current(mA/cm²)": float(jj),
+                            "power(mW)": float(pp),
+                            "power_density(mW/cm²)": float(pd_),
+                            "method": METHOD,
+                        })
+                    transient_counter += 1
+                    if transient_counter >= 10:
+                        transient_finished = True
+                        transient_counter = 0
+                        # Salva periodicamente no disco (10 ciclos a cada 1h)
+                        pd.DataFrame(raw_records).to_csv(smu_dir / "mppt_raw.csv", index=False)
+                        pd.DataFrame(cycle_records).to_csv(smu_dir / "mppt_tracking.csv", index=False)
+                        print(f"  [Checkpoint Disco - Hora {current_hour}] 10 ciclos raw salvos em: {smu_dir / 'mppt_raw.csv'}")
+
+            else:
+                for tt, vv, ii in zip(t_win, v_win, i_win):
+                    jj = ii * 1000.0 / SAMPLE_AREA
+                    pp = abs(vv * ii * 1000.0)
+                    pd_ = abs(vv * jj)
+                    raw_records.append({
+                        "time(s)": float(tt) + (cycle_t0 - cycle_start_time),
+                        "cycle": cycle,
+                        "voltage(V)": float(vv),
+                        "current(A)": float(ii),
+                        "j_current(mA/cm²)": float(jj),
+                        "power(mW)": float(pp),
+                        "power_density(mW/cm²)": float(pd_),
+                        "method": METHOD,
+                    })
+                # Periodic save every 50 cycles when stability mode is disabled
+                if cycle % 50 == 0:
+                    pd.DataFrame(raw_records).to_csv(smu_dir / "mppt_raw.csv", index=False)
 
             # ── 3) Lógica do Algoritmo ─────────────────────────────────
             if LOGIC == "PO":
@@ -777,6 +818,9 @@ def main():
                 "step": float(step),
                 "mode": mode,
             })
+
+            # Persistence: save tracking CSV to disk at each cycle
+            pd.DataFrame(cycle_records).to_csv(smu_dir / "mppt_tracking.csv", index=False)
 
             print(f"Cycle {cycle:3d} | t={t_win[-1] if len(t_win) else 0:7.2f}s | "
                   f"V={avg_v:6.3f} V | J={avg_j:7.3f} mA/cm² | "

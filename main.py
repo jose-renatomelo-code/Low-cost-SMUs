@@ -5,6 +5,7 @@ from pathlib import Path
 from drivers import ADALM1000_Driver, MultiADALM1000_Driver, AD3_Driver, Keithley2450_Driver, USMU_Driver
 import numpy as np
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1175,6 +1176,151 @@ def main():
             driver.disconnect()
         print("\nInstrument disconnected.")
 
+#if __name__ == "__main__":
+    #main()
 
-if __name__ == "__main__":
-    main()
+# Plot Specs Bar plots
+def barplot_specs():
+    import pandas as pd
+    import seaborn as sns
+    from pathlib import Path
+
+    data = {
+        "Keithley 2450" : {
+            "Sample Rate (Hz)": 193.27, 
+            "V noise (mV rms)": 0.001, 
+            "I noise (µA rms)": 1.789,
+            "Rise Time (ms)": 12.45, 
+            "Fall Time (ms)": 12.11
+        },
+        "USMU" : {
+            "Sample Rate (Hz)": 45.04, 
+            "V noise (mV rms)": 0.108, 
+            "I noise (µA rms)": 1.694,
+            "Rise Time (ms)": 22.08, 
+            "Fall Time (ms)": 21.91
+        },
+        "ADALM1000": {
+            "Sample Rate (Hz)": 3.68, 
+            "V noise (mV rms)": 0.004, 
+            "I noise (µA rms)": 2.976,
+            "Rise Time (ms)": 72.04, 
+            "Fall Time (ms)": 74.12
+        }
+    }
+    
+    # Convert to DataFrame for easy seaborn plotting
+    df = pd.DataFrame(data).T.reset_index().rename(columns={"index": "SMU"})
+    
+    # Configure publication-style look
+    plt.rcParams.update({
+        "font.family": "sans-serif",
+        "font.sans-serif": ["DejaVu Sans", "Arial", "Helvetica"],
+        "figure.facecolor": "white",
+        "axes.facecolor": "#ffffff",
+        "axes.edgecolor": "#cccccc",
+        "axes.linewidth": 1.0,
+        "axes.grid": True,
+        "grid.color": "#e9ecef",
+        "grid.linestyle": "--",
+        "grid.alpha": 0.7,
+        "axes.labelsize": 11,
+        "axes.labelweight": "bold",
+        "xtick.labelsize": 10,
+        "ytick.labelsize": 10,
+    })
+    
+    fig, axes = plt.subplots(figsize=(14, 5), ncols=5, nrows=1, constrained_layout=True)
+    
+    # Target values and comparison logic for each metric
+    # Format: (column_name, target_value, is_higher_better)
+    metrics_info = [
+        ("Sample Rate (Hz)", 200.0, True),
+        ("V noise (mV rms)", 0.005, False),
+        ("I noise (µA rms)", 1.0, False),
+        ("Rise Time (ms)", 5.0, False),
+        ("Fall Time (ms)", 5.0, False)
+    ]
+    
+    # Consistent color palette matching the paper's style
+    smu_colors = {
+        "Keithley 2450": "#1f77b4",  # Reference Blue
+        "USMU": "#2ca02c",           # Emerald Green
+        "ADALM1000": "#ff7f0e"       # Safety Orange
+    }
+    
+    for idx, (col, target, higher_better) in enumerate(metrics_info):
+        ax = axes[idx]
+        
+        # Draw the bars
+        bars = sns.barplot(
+            data=df, 
+            x="SMU", 
+            y=col, 
+            ax=ax, 
+            palette=smu_colors, 
+            hue="SMU", 
+            legend=False, 
+            edgecolor="#2f3542", 
+            linewidth=1.0,
+            alpha=0.9
+        )
+        
+        # Add target line
+        ax.axhline(y=target, color="#d63031", linestyle="--", linewidth=1.5, zorder=3)
+        
+        # Label the target line
+        ax.text(
+            -0.4, 
+            target * 1.03 if higher_better else target * 0.97, 
+            f"",
+            color="#d63031", 
+            fontsize=6,
+            fontweight="bold", 
+            va="bottom" if higher_better else "top",
+            ha="left"
+        )
+        
+        # Annotate each bar with its exact value
+        for bar in bars.patches:
+            val = bar.get_height()
+            if val > 0:
+                # Format to 3 decimal places if very small, else 2
+                fmt = f"{val:.3f}" if val < 0.1 else f"{val:.2f}"
+                ax.annotate(
+                    fmt,
+                    (bar.get_x() + bar.get_width() / 2.0, val),
+                    ha="center", 
+                    va="bottom", 
+                    fontsize=9, 
+                    fontweight="bold",
+                    xytext=(0, 3), 
+                    textcoords="offset points"
+                )
+                
+        # Subplot titles and cleanups
+        ax.set_title(col, fontsize=12, fontweight="bold", pad=12, color="#2f3542")
+        ax.set_xlabel("")
+        ax.set_ylabel("")
+        
+        # Hide top/right borders
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        
+        # Adjust Y limits dynamically to accommodate labels
+        max_val = max(df[col].max(), target)
+        ax.set_ylim(0, max_val * 1.25)
+
+    # Save file for inspection and report
+    output_dir = Path("output/graphs")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    fig_path = output_dir / "smu_specs_comparison.png"
+    plt.savefig(fig_path, dpi=300, bbox_inches="tight")
+    print(f"Saved specifications benchmark to: {fig_path}")
+    
+    try:
+        plt.show()
+    except Exception:
+        pass
+
+barplot_specs()

@@ -1,4 +1,10 @@
+import logging
+import resource
+import signal
+import sys
 import time
+import traceback
+import faulthandler
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -26,6 +32,7 @@ TIMEOUT_CV            = 15.0         # Max wait time for CV stabilization per cy
 CV_WINDOW             = 20           # Sliding window size for CV check
 MIN_CV                = 0.05         # Min CV threshold (5%)
 MIN_CYCLE_TIME        = 1.0          # Minimum time between cycle starts (s) — avoid empty loops
+HEARTBEAT_EVERY_N_CYCLES = 20        # How often to log a "still alive" heartbeat
 
 BASE_OUTPUT_DIR = Path("OUTPUT STABILITY")
 BASE_OUTPUT_DIR.mkdir(exist_ok=True)
@@ -37,6 +44,43 @@ V_START_PER_DEVICE = {
     # "Celula_2": 0.75,
     # "Celula_3": 0.90,
 }
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# DIAGNOSTICS / LOGGING SETUP
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Fully-buffered stdout (the default whenever output is redirected to a file
+# instead of a terminal) means print()'d status lines can sit in a buffer and
+# never reach disk if the process dies abruptly. Force line buffering so the
+# last thing printed before a crash is actually on disk.
+sys.stdout.reconfigure(line_buffering=True)
+sys.stderr.reconfigure(line_buffering=True)
+
+LOG_PATH = BASE_OUTPUT_DIR / "run.log"
+logging.basicConfig(
+    filename=LOG_PATH,
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+# If a fatal signal (segfault/abort) comes from native driver/libusb code,
+# faulthandler dumps a C-level traceback to stderr before the process dies —
+# otherwise a native crash leaves zero trace.
+faulthandler.enable()
+
+
+def _handle_term_signal(signum, frame):
+    """Logs the origin of an external kill (SIGTERM/SIGHUP) before dying,
+    so a dropped SSH session / systemd stop is distinguishable from a bug."""
+    logger.error("Received signal %s — process is being terminated externally.", signum)
+    logger.error("Stack at signal time:\n%s", "".join(traceback.format_stack(frame)))
+    raise SystemExit(1)
+
+
+signal.signal(signal.SIGTERM, _handle_term_signal)
+if hasattr(signal, "SIGHUP"):
+    signal.signal(signal.SIGHUP, _handle_term_signal)
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # ESTILO DE PLOT
@@ -126,6 +170,7 @@ def fit_transient_double_exp(t_data: np.ndarray, i_data: np.ndarray) -> tuple[fl
         r2 = calculate_r_squared(i_clean, i_pred)
         return float(a1), float(tau1), float(a2), float(tau2), float(c), float(r2)
     except Exception:
+        logger.debug("Double-exp fit (first attempt) failed:\n%s", traceback.format_exc())
         try:
             popt, _ = curve_fit(double_exp_func, t_clean, i_clean, p0=p0, maxfev=5000)
             a1, tau1, a2, tau2, c = popt
@@ -136,6 +181,7 @@ def fit_transient_double_exp(t_data: np.ndarray, i_data: np.ndarray) -> tuple[fl
             r2 = calculate_r_squared(i_clean, i_pred)
             return float(a1), float(tau1), float(a2), float(tau2), float(c), float(r2)
         except Exception:
+            logger.debug("Double-exp fit (fallback) failed:\n%s", traceback.format_exc())
             return None, None, None, None, None, None
 
 
@@ -168,6 +214,7 @@ def fit_transient_single_exp(t_data: np.ndarray, i_data: np.ndarray) -> tuple[fl
         r2 = calculate_r_squared(i_clean, i_pred)
         return float(a), float(tau), float(c), float(r2)
     except Exception:
+        logger.debug("Single-exp fit (first attempt) failed:\n%s", traceback.format_exc())
         try:
             popt, _ = curve_fit(single_exp_func, t_clean, i_clean, p0=p0, maxfev=3000)
             a, tau, c = popt
@@ -175,6 +222,7 @@ def fit_transient_single_exp(t_data: np.ndarray, i_data: np.ndarray) -> tuple[fl
             r2 = calculate_r_squared(i_clean, i_pred)
             return float(a), float(tau), float(c), float(r2)
         except Exception:
+            logger.debug("Single-exp fit (fallback) failed:\n%s", traceback.format_exc())
             return None, None, None, None
 
 
@@ -273,7 +321,7 @@ def print_mppt_status(t_elapsed_s: float, device_states: dict, cycle: int = 0):
     s = int(t_elapsed_s % 60)
     time_str = f"{h:02d}:{m:02d}:{s:02d}"
 
-    print(f"\n[ CICLO {cycle} mudou | {time_str} | TODOS EM STEADY-STATE ]" + "─" * 25)
+    print(f"\n[ CYCLE {cycle} changed | {time_str} | ALL STEADY-STATE ]" + "─" * 25)
     for dev_id, state in device_states.items():
         name = state["custom_name"]
         raw = state["raw_records"][-1] if state["raw_records"] else {}
@@ -285,55 +333,61 @@ def print_mppt_status(t_elapsed_s: float, device_states: dict, cycle: int = 0):
         t_dwell = raw.get("t_dwell_s", 0.0)
         steps = state["step_count"]
 
-        phase = "REFINO" if not state["is_exploring"] else "EXPLORAR"
-        print(f"  ├─ [{name:<20s}] Ciclos:{steps:4d} | V_set:{v_set:6.3f}V | V_meas:{v_m:6.3f}V | "
-              f"I:{i_m:8.3f}mA | P:{p_dens:7.2f}mW/cm² | PCE:{pce:6.2f}% | t_dwell:{t_dwell:5.2f}s | Modo:{phase}")
+        phase = "REFINE" if not state["is_exploring"] else "EXPLORE"
+        print(f"  ├─ [{name:<20s}] Cycles:{steps:4d} | V_set:{v_set:6.3f}V | V_meas:{v_m:6.3f}V | "
+              f"I:{i_m:8.3f}mA | P:{p_dens:7.2f}mW/cm² | PCE:{pce:6.2f}% | t_dwell:{t_dwell:5.2f}s | Mode:{phase}")
 
 
 def save_plots_and_reports(dev_state: dict):
     """
     Generate and save evolution plots and updated CSV reports for a single device (Channel A).
     """
-    dev_dir = dev_state["output_dir"]
-    raw_df = pd.DataFrame(dev_state["raw_records"])
-    trans_df = pd.DataFrame(dev_state["transient_records"])
+    try:
+        dev_dir = dev_state["output_dir"]
+        raw_df = pd.DataFrame(dev_state["raw_records"])
+        trans_df = pd.DataFrame(dev_state["transient_records"])
 
-    # 1. Save CSVs
-    raw_path = dev_dir / "MPPT_raw.csv"
-    trans_path = dev_dir / "transient_metrics.csv"
-    trans_compat_path = dev_dir / "transient_data.csv"
+        # 1. Save CSVs
+        raw_path = dev_dir / "MPPT_raw.csv"
+        trans_path = dev_dir / "transient_metrics.csv"
+        trans_compat_path = dev_dir / "transient_data.csv"
 
-    raw_df.to_csv(raw_path, index=False)
-    if not trans_df.empty:
-        trans_df.to_csv(trans_path, index=False)
-        trans_df.to_csv(trans_compat_path, index=False)
+        raw_df.to_csv(raw_path, index=False)
+        if not trans_df.empty:
+            trans_df.to_csv(trans_path, index=False)
+            trans_df.to_csv(trans_compat_path, index=False)
 
-    # 2. Power Evolution Plot
-    if not raw_df.empty and "t_rel_h" in raw_df.columns:
-        fig, ax = plt.subplots(figsize=(9, 5))
-        ax.plot(raw_df["t_rel_h"], raw_df["power_density_mw_cm2"], label="Potência (mW/cm²)", color="#1f77b4")
-        ax.set_xlabel("Tempo (horas)")
-        ax.set_ylabel("Potência (mW/cm²)")
-        ax.set_title(f"Evolução de Potência - {dev_state['custom_name']}")
-        ax.legend()
-        fig.tight_layout()
-        fig.savefig(dev_dir / "power_evolution.png", dpi=300)
-        plt.close(fig)
+        # 2. Power Evolution Plot
+        if not raw_df.empty and "t_rel_h" in raw_df.columns:
+            fig, ax = plt.subplots(figsize=(9, 5))
+            ax.plot(raw_df["t_rel_h"], raw_df["power_density_mw_cm2"], label="Power (mW/cm²)", color="#1f77b4")
+            ax.set_xlabel("Time (hours)")
+            ax.set_ylabel("Power (mW/cm²)")
+            ax.set_title(f"Power Evolution - {dev_state['custom_name']}")
+            ax.legend()
+            fig.tight_layout()
+            fig.savefig(dev_dir / "power_evolution.png", dpi=300)
+            plt.close(fig)
 
-        # 3. Voltage & Current Evolution Plot
-        fig, ax1 = plt.subplots(figsize=(9, 5))
-        ax2 = ax1.twinx()
+            # 3. Voltage & Current Evolution Plot
+            fig, ax1 = plt.subplots(figsize=(9, 5))
+            ax2 = ax1.twinx()
 
-        ax1.plot(raw_df["t_rel_h"], raw_df["v_meas_V"], color="#2ca02c", label="Tensão Medida (V)", linewidth=1.2)
-        ax2.plot(raw_df["t_rel_h"], raw_df["i_meas_mA"], color="#d62728", label="Corrente (mA)", linewidth=1.2)
+            ax1.plot(raw_df["t_rel_h"], raw_df["v_meas_V"], color="#2ca02c", label="Measured Voltage (V)", linewidth=1.2)
+            ax2.plot(raw_df["t_rel_h"], raw_df["i_meas_mA"], color="#d62728", label="Current (mA)", linewidth=1.2)
 
-        ax1.set_xlabel("Tempo (horas)")
-        ax1.set_ylabel("Tensão (V)", color="#2ca02c")
-        ax2.set_ylabel("Corrente (mA)", color="#d62728")
-        ax1.set_title(f"Evolução de V e I - {dev_state['custom_name']}")
-        fig.tight_layout()
-        fig.savefig(dev_dir / "voltage_current_evolution.png", dpi=300)
-        plt.close(fig)
+            ax1.set_xlabel("Time (hours)")
+            ax1.set_ylabel("Voltage (V)", color="#2ca02c")
+            ax2.set_ylabel("Current (mA)", color="#d62728")
+            ax1.set_title(f"IV Evolution - {dev_state['custom_name']}")
+            fig.tight_layout()
+            fig.savefig(dev_dir / "voltage_current_evolution.png", dpi=300)
+            plt.close(fig)
+    except Exception:
+        # Never let a plotting/IO failure take down the measurement loop —
+        # log it and keep the run alive; data is still safe in memory.
+        logger.error("save_plots_and_reports failed for device '%s':\n%s",
+                      dev_state.get("custom_name", "?"), traceback.format_exc())
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -343,6 +397,7 @@ def main():
     print("=" * 75)
     print("  PROTOCOLO DE ESTABILIDADE TRANSIENTE LONG-TERM (MPPT INDEPENDENTE)")
     print("=" * 75)
+    logger.info("Run starting. T_TOTAL=%.1fh", T_TOTAL / 3600)
 
     # 1. Discover and connect ADALM1000 devices
     driver = MultiADALM1000_Driver()
@@ -350,6 +405,7 @@ def main():
         driver.connect(curr_sour=False)
     except Exception as exc:
         print(f"Erro ao conectar ADALM1000: {exc}")
+        logger.error("Failed to connect to ADALM1000 devices:\n%s", traceback.format_exc())
         return
 
     # 2. Interactive Hardware Identification Wizard
@@ -404,10 +460,12 @@ def main():
             "transient_records": [],
         }
         print(f"   ✓ Configurado: '{custom_name}' | V_start={v_start:.3f}V -> Pasta: '{dev_dir}'\n")
+        logger.info("Device configured: %s (dev_id=%s, v_start=%.3f)", custom_name, dev_id, v_start)
 
     print("Identificação finalizada.")
     print("Iniciando protocolo de estabilidade de longa duração (MPPT Paralelo Independente por Dispositivo)...")
     print(f"Dispositivos configurados: {[st['custom_name'] for st in device_states.values()]}")
+    logger.info("All devices configured, entering main loop.")
 
     t_start = time.perf_counter()
     last_checkpoint_h = 0  # Starts at 0: first hourly transient runs after 1h (current_hour == 1)
@@ -421,7 +479,14 @@ def main():
             #      O dispositivo mais lento dita a duração da janela.
             cycle_t0 = time.perf_counter() - t_start
             v_targets = {dev_id: st["v_now"] for dev_id, st in device_states.items()}
-            res, window_duration = acquire_cv_transient_cha(driver, v_targets, timeout=TIMEOUT_CV)
+
+            try:
+                res, window_duration = acquire_cv_transient_cha(driver, v_targets, timeout=TIMEOUT_CV)
+            except Exception:
+                logger.error("acquire_cv_transient_cha failed in MPPT cycle %d:\n%s",
+                              cycle, traceback.format_exc())
+                time.sleep(2.0)
+                continue
 
             cycle += 1
             t_elapsed = time.perf_counter() - t_start
@@ -431,181 +496,221 @@ def main():
                   f"(todos os dispositivos em steady-state) ---")
 
             for dev_id, (t_arr, v_arr, i_arr, i_ss, settled, dt_ss, cv_val) in res.items():
-                state = device_states[dev_id]
-                v_meas = float(np.mean(v_arr)) if len(v_arr) else float(state["v_now"])
-                power_mw = abs(v_meas * i_ss * 1000.0)  # mW total
-                power_density = power_mw / SAMPLE_AREA  # mW/cm²
-                pce = power_mw / (P_IN * SAMPLE_AREA) * 100.0  # %
+                try:
+                    state = device_states[dev_id]
+                    v_meas = float(np.mean(v_arr)) if len(v_arr) else float(state["v_now"])
+                    power_mw = abs(v_meas * i_ss * 1000.0)  # mW total
+                    power_density = power_mw / SAMPLE_AREA  # mW/cm²
+                    pce = power_mw / (P_IN * SAMPLE_AREA) * 100.0  # %
 
-                state["raw_records"].append({
-                    "time_s": t_elapsed,
-                    "t_rel_h": t_elapsed / 3600.0,
-                    "v_set_V": float(state["v_now"]),
-                    "v_meas_V": v_meas,
-                    "i_meas_mA": i_ss * 1e3,
-                    "power_mw": power_mw,
-                    "power_density_mw_cm2": power_density,
-                    "pce_percent": pce,
-                    "t_dwell_s": window_duration,
-                    "settled": bool(settled),
-                    "dt_ss_s": dt_ss,
-                    "cv_percent": cv_val,
-                })
+                    state["raw_records"].append({
+                        "time_s": t_elapsed,
+                        "t_rel_h": t_elapsed / 3600.0,
+                        "v_set_V": float(state["v_now"]),
+                        "v_meas_V": v_meas,
+                        "i_meas_mA": i_ss * 1e3,
+                        "power_mw": power_mw,
+                        "power_density_mw_cm2": power_density,
+                        "pce_percent": pce,
+                        "t_dwell_s": window_duration,
+                        "settled": bool(settled),
+                        "dt_ss_s": dt_ss,
+                        "cv_percent": cv_val,
+                    })
 
-                # Avança o algoritmo P&O deste dispositivo individualmente a partir do V real medido
-                v_next, new_dir, is_exp = po_step(
-                    p_now=power_mw,
-                    v_now=v_meas,
-                    direction=state["direction"],
-                    is_exploring=state["is_exploring"],
-                    p_prev=state["p_prev"],
-                )
+                    # Avança o algoritmo P&O deste dispositivo individualmente a partir do V real medido
+                    v_next, new_dir, is_exp = po_step(
+                        p_now=power_mw,
+                        v_now=v_meas,
+                        direction=state["direction"],
+                        is_exploring=state["is_exploring"],
+                        p_prev=state["p_prev"],
+                    )
 
-                # Clamp de segurança ao range do instrumento
-                v_max = getattr(driver, "V_MAX_V", None) or 2.0
-                v_next = float(np.clip(v_next, 0.0, v_max))
+                    # Clamp de segurança ao range do instrumento
+                    v_max = getattr(driver, "V_MAX_V", None) or 2.0
+                    v_next = float(np.clip(v_next, 0.0, v_max))
 
-                state["v_now"] = v_next
-                state["direction"] = new_dir
-                state["is_exploring"] = is_exp
-                state["p_prev"] = power_mw
-                state["step_count"] += 1
+                    state["v_now"] = v_next
+                    state["direction"] = new_dir
+                    state["is_exploring"] = is_exp
+                    state["p_prev"] = power_mw
+                    state["step_count"] += 1
+                except Exception:
+                    logger.error("Error processing device %s in MPPT cycle %d:\n%s",
+                                  dev_id, cycle, traceback.format_exc())
+                    continue
 
             # Exibe o status atualizado de todos os dispositivos no terminal
             print_mppt_status(t_elapsed, device_states, cycle=cycle)
+
+            # Heartbeat: cheap proof-of-life + memory trend, independent of
+            # everything else below. If the run dies, this tells you the
+            # last confirmed-alive cycle and whether memory was climbing.
+            if cycle % HEARTBEAT_EVERY_N_CYCLES == 0:
+                mem_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+                logger.info("Heartbeat: cycle=%d elapsed=%.2fh mem=%.1fMB devices=%d",
+                            cycle, t_elapsed / 3600, mem_mb, len(device_states))
 
             # ── HOURLY TRANSIENT ANALYSIS CHECKPOINT ─────────────────────────
             # Dispara de hora em hora após o início (current_hour >= 1)
             if current_hour > last_checkpoint_h and current_hour >= 1:
                 last_checkpoint_h = current_hour
                 print(f"\n[{time.strftime('%H:%M:%S')}] >>> Iniciando Análise de Transiente Horária (Hora {current_hour})...")
+                logger.info("Entering hourly transient checkpoint for hour %d", current_hour)
 
-                # Salva o estado normal de MPPT (tensão base) de cada dispositivo
-                v_mpp_baseline = {dev_id: state["v_now"] for dev_id, state in device_states.items()}
-                v_prev_applied = {dev_id: state["v_now"] for dev_id, state in device_states.items()}
+                try:
+                    # Salva o estado normal de MPPT (tensão base) de cada dispositivo
+                    v_mpp_baseline = {dev_id: state["v_now"] for dev_id, state in device_states.items()}
+                    v_prev_applied = {dev_id: state["v_now"] for dev_id, state in device_states.items()}
 
-                for cyc in range(1, N_TRANSIENT_CYCLES + 1):
-                    # Oscila a perturbação variando dir = +1 e -1 com LARGE_STEP em torno do MPPT
-                    step_dir = 1 if (cyc % 2 != 0) else -1
-                    v_transient_targets = {}
+                    for cyc in range(1, N_TRANSIENT_CYCLES + 1):
+                        # Oscila a perturbação variando dir = +1 e -1 com LARGE_STEP em torno do MPPT
+                        step_dir = 1 if (cyc % 2 != 0) else -1
+                        v_transient_targets = {}
 
+                        for dev_id, state in device_states.items():
+                            v_base = v_mpp_baseline[dev_id]
+                            v_step = float(np.clip(v_base + step_dir * LARGE_STEP, 0.0, 1.3))
+                            v_transient_targets[dev_id] = v_step
+
+                        # Aquisição paralela da resposta ao degrau em Canal A para todos os dispositivos
+                        try:
+                            trans_res, trans_duration = acquire_cv_transient_cha(driver, v_transient_targets, timeout=TIMEOUT_CV)
+                        except Exception:
+                            logger.error("acquire_cv_transient_cha failed in transient cycle %d/hour %d:\n%s",
+                                         cyc, current_hour, traceback.format_exc())
+                            continue
+
+                        # Fitting exponencial completo e registro de métricas para cada dispositivo
+                        for dev_id, (t_arr, v_arr, i_arr, i_ss, settled, dt_ss, cv_val) in trans_res.items():
+                            try:
+                                state = device_states[dev_id]
+                                v_before = v_prev_applied[dev_id]
+                                v_after = v_transient_targets[dev_id]
+                                delta_v = v_after - v_before
+                                dt_cycle = t_arr[-1] - t_arr[0] if len(t_arr) > 1 else 0.0
+                                i_init_mA = float(i_arr[0] * 1e3) if len(i_arr) else 0.0
+                                i_mean_20_mA = float(np.mean(i_arr[-20:]) * 1e3) if len(i_arr) >= 20 else float(np.mean(i_arr) * 1e3) if len(i_arr) else 0.0
+                                t_rel_step = t_arr - t_arr[0] if len(t_arr) else t_arr
+
+                                # 1. Fitting Bi-exponencial: I(t) = a1*exp(-t/t1) + a2*exp(-t/t2) + c
+                                a1, tau1, a2, tau2, c_double, r2_double = fit_transient_double_exp(t_rel_step, i_arr)
+
+                                # 2. Fitting Mono-exponencial: I(t) = a*exp(-t/tau) + c
+                                a_single, tau_single, c_single, r2_single = fit_transient_single_exp(t_rel_step, i_arr)
+
+                                # Armazena todas as métricas detalhadas
+                                state["transient_records"].append({
+                                    "timestamp_s": time.perf_counter() - t_start,
+                                    "hour": current_hour,
+                                    "cycle_num": cyc,
+                                    "step_dir": step_dir,
+                                    "v_before_V": v_before,
+                                    "v_after_V": v_after,
+                                    "delta_v_V": delta_v,
+                                    "i_initial_mA": i_init_mA,
+                                    "i_mean_20_mA": i_mean_20_mA,
+                                    "i_ss_meas_mA": i_ss * 1e3,
+                                    "cv_final_percent": cv_val,
+                                    "settled": bool(settled),
+                                    "settling_time_s": dt_cycle - dt_ss if dt_ss > 0 else dt_cycle,
+                                    "cycle_duration_s": dt_cycle,
+                                    # Parâmetros Bi-exponencial
+                                    "fit_double_a1_mA": a1 * 1e3 if a1 is not None else None,
+                                    "fit_double_tau1_s": tau1 if tau1 is not None else None,
+                                    "fit_double_tau1_ms": tau1 * 1e3 if tau1 is not None else None,
+                                    "fit_double_a2_mA": a2 * 1e3 if a2 is not None else None,
+                                    "fit_double_tau2_s": tau2 if tau2 is not None else None,
+                                    "fit_double_c_ss_mA": c_double * 1e3 if c_double is not None else None,
+                                    "fit_double_r2": r2_double if r2_double is not None else None,
+                                    # Parâmetros Mono-exponencial
+                                    "fit_single_a_mA": a_single * 1e3 if a_single is not None else None,
+                                    "fit_single_tau_s": tau_single if tau_single is not None else None,
+                                    "fit_single_c_ss_mA": c_single * 1e3 if c_single is not None else None,
+                                    "fit_single_r2": r2_single if r2_single is not None else None,
+                                })
+
+                                # Gera gráfico detalhado do fitting para o primeiro ciclo (ou quando houver bom ajuste)
+                                if cyc == 1 and len(t_arr) > 5:
+                                    fig, ax = plt.subplots(figsize=(8, 5))
+                                    ax.plot(t_rel_step, i_arr * 1e3, "o", markersize=3, label="Data", color="#1f77b4", alpha=0.8)
+                                    ax.legend(loc="upper right")
+
+                                    if a1 is not None and tau1 is not None:
+                                        t_fit = np.linspace(t_rel_step[0], t_rel_step[-1], 250)
+                                        i_fit_double = double_exp_func(t_fit, a1, tau1, a2, tau2, c_double) * 1e3
+                                        ax.plot(t_fit, i_fit_double, "-", label=f"Bi-Exp Fit (R²={r2_double:.3f})", color="#d62728", linewidth=2.0)
+
+                                        param_text = (
+                                            f"a₁ = {a1*1e3:.3f} mA\n"
+                                            f"τ₁ = {tau1*1e3:.2f} ms\n"
+                                            f"a₂ = {a2*1e3:.3f} mA\n"
+                                            f"τ₂ = {tau2:.3f} s\n"
+                                            f"I_ss(fit) = {c_double*1e3:.3f} mA\n"
+                                            f"I_ss(med) = {i_ss*1e3:.3f} mA\n"
+                                            f"R² = {r2_double:.4f}\n"
+                                            f"CV = {cv_val:.2f}%\n"
+                                            f"ΔV = {delta_v:+.2f}V"
+                                        )
+                                        ax.text(
+                                            0.97, 0.95, param_text,
+                                            transform=ax.transAxes,
+                                            fontsize=9,
+                                            verticalalignment="center",
+                                            horizontalalignment="right",
+                                            bbox=dict(boxstyle="round,pad=0.5", facecolor="white", alpha=0.9, edgecolor="#cccccc")
+                                        )
+
+                                    ax.set_xlabel("Relative Step Time (s)")
+                                    ax.set_ylabel("Current (mA)")
+                                    ax.set_title(f"Transient Hour {current_hour} (Cycle 1) - {state['custom_name']} (ΔV={delta_v:+.2f}V)")
+                                    fig.tight_layout()
+                                    fig.savefig(state["output_dir"] / f"transient_fits_hour_{current_hour}.png", dpi=300)
+                                    plt.close(fig)
+                            except Exception:
+                                logger.error("Error processing transient result for device %s, hour %d, cycle %d:\n%s",
+                                              dev_id, current_hour, cyc, traceback.format_exc())
+                                continue
+
+                        # Atualiza a tensão previamente aplicada para o próximo degrau
+                        for dev_id, v_target in v_transient_targets.items():
+                            v_prev_applied[dev_id] = v_target
+
+                    # ── RESTAURAÇÃO: Retorna todos os dispositivos à tensão de MPPT baseline
+                    print(f" >>> Restaurando dispositivos para as tensões de MPPT de operação normal...")
+                    driver.set_voltage_channel_a_all_and_measure(v_mpp_baseline)
                     for dev_id, state in device_states.items():
-                        v_base = v_mpp_baseline[dev_id]
-                        v_step = float(np.clip(v_base + step_dir * LARGE_STEP, 0.0, 1.3))
-                        v_transient_targets[dev_id] = v_step
+                        state["v_now"] = v_mpp_baseline[dev_id]
 
-                    # Aquisição paralela da resposta ao degrau em Canal A para todos os dispositivos
-                    trans_res, trans_duration = acquire_cv_transient_cha(driver, v_transient_targets, timeout=TIMEOUT_CV)
+                    # Salva CSVs e gráficos atualizados para todos os dispositivos
+                    for state in device_states.values():
+                        save_plots_and_reports(state)
 
-                    # Fitting exponencial completo e registro de métricas para cada dispositivo
-                    for dev_id, (t_arr, v_arr, i_arr, i_ss, settled, dt_ss, cv_val) in trans_res.items():
-                        state = device_states[dev_id]
-                        v_before = v_prev_applied[dev_id]
-                        v_after = v_transient_targets[dev_id]
-                        delta_v = v_after - v_before
-                        dt_cycle = t_arr[-1] - t_arr[0] if len(t_arr) > 1 else 0.0
-                        i_init_mA = float(i_arr[0] * 1e3) if len(i_arr) else 0.0
-                        i_mean_20_mA = float(np.mean(i_arr[-20:]) * 1e3) if len(i_arr) >= 20 else float(np.mean(i_arr) * 1e3) if len(i_arr) else 0.0
-                        t_rel_step = t_arr - t_arr[0] if len(t_arr) else t_arr
+                    print(f" [OK] Análise de Transiente da Hora {current_hour} concluída e dados salvos com sucesso.\n")
+                    logger.info("Hourly transient checkpoint for hour %d completed OK.", current_hour)
 
-                        # 1. Fitting Bi-exponencial: I(t) = a1*exp(-t/t1) + a2*exp(-t/t2) + c
-                        a1, tau1, a2, tau2, c_double, r2_double = fit_transient_double_exp(t_rel_step, i_arr)
-
-                        # 2. Fitting Mono-exponencial: I(t) = a*exp(-t/tau) + c
-                        a_single, tau_single, c_single, r2_single = fit_transient_single_exp(t_rel_step, i_arr)
-
-                        # Armazena todas as métricas detalhadas
-                        state["transient_records"].append({
-                            "timestamp_s": time.perf_counter() - t_start,
-                            "hour": current_hour,
-                            "cycle_num": cyc,
-                            "step_dir": step_dir,
-                            "v_before_V": v_before,
-                            "v_after_V": v_after,
-                            "delta_v_V": delta_v,
-                            "i_initial_mA": i_init_mA,
-                            "i_mean_20_mA": i_mean_20_mA,
-                            "i_ss_meas_mA": i_ss * 1e3,
-                            "cv_final_percent": cv_val,
-                            "settled": bool(settled),
-                            "settling_time_s": dt_cycle - dt_ss if dt_ss > 0 else dt_cycle,
-                            "cycle_duration_s": dt_cycle,
-                            # Parâmetros Bi-exponencial
-                            "fit_double_a1_mA": a1 * 1e3 if a1 is not None else None,
-                            "fit_double_tau1_s": tau1 if tau1 is not None else None,
-                            "fit_double_tau1_ms": tau1 * 1e3 if tau1 is not None else None,
-                            "fit_double_a2_mA": a2 * 1e3 if a2 is not None else None,
-                            "fit_double_tau2_s": tau2 if tau2 is not None else None,
-                            "fit_double_c_ss_mA": c_double * 1e3 if c_double is not None else None,
-                            "fit_double_r2": r2_double if r2_double is not None else None,
-                            # Parâmetros Mono-exponencial
-                            "fit_single_a_mA": a_single * 1e3 if a_single is not None else None,
-                            "fit_single_tau_s": tau_single if tau_single is not None else None,
-                            "fit_single_c_ss_mA": c_single * 1e3 if c_single is not None else None,
-                            "fit_single_r2": r2_single if r2_single is not None else None,
-                        })
-
-                        # Gera gráfico detalhado do fitting para o primeiro ciclo (ou quando houver bom ajuste)
-                        if cyc == 1 and len(t_arr) > 5:
-                            fig, ax = plt.subplots(figsize=(8, 5))
-                            ax.plot(t_rel_step, i_arr * 1e3, "o", markersize=3, label="Medido (mA)", color="#1f77b4", alpha=0.8)
-
-                            if a1 is not None and tau1 is not None:
-                                t_fit = np.linspace(t_rel_step[0], t_rel_step[-1], 250)
-                                i_fit_double = double_exp_func(t_fit, a1, tau1, a2, tau2, c_double) * 1e3
-                                ax.plot(t_fit, i_fit_double, "-", label=f"Bi-Exp Fit (R²={r2_double:.3f})", color="#d62728", linewidth=2.0)
-
-                                param_text = (
-                                    f"a₁ = {a1*1e3:.3f} mA\n"
-                                    f"τ₁ = {tau1*1e3:.2f} ms\n"
-                                    f"a₂ = {a2*1e3:.3f} mA\n"
-                                    f"τ₂ = {tau2:.3f} s\n"
-                                    f"I_ss(fit) = {c_double*1e3:.3f} mA\n"
-                                    f"I_ss(med) = {i_ss*1e3:.3f} mA\n"
-                                    f"R² = {r2_double:.4f}\n"
-                                    f"CV = {cv_val:.2f}%\n"
-                                    f"ΔV = {delta_v:+.2f}V"
-                                )
-                                ax.text(
-                                    0.97, 0.95, param_text,
-                                    transform=ax.transAxes,
-                                    fontsize=9,
-                                    verticalalignment="top",
-                                    horizontalalignment="right",
-                                    bbox=dict(boxstyle="round,pad=0.5", facecolor="white", alpha=0.9, edgecolor="#cccccc")
-                                )
-
-                            ax.set_xlabel("Tempo relativo do degrau (s)")
-                            ax.set_ylabel("Corrente (mA)")
-                            ax.set_title(f"Transiente Hora {current_hour} (Ciclo 1) - {state['custom_name']} (ΔV={delta_v:+.2f}V)")
-                            ax.legend(loc="upper left")
-                            fig.tight_layout()
-                            fig.savefig(state["output_dir"] / f"transient_fits_hour_{current_hour}.png", dpi=300)
-                            plt.close(fig)
-
-                    # Atualiza a tensão previamente aplicada para o próximo degrau
-                    for dev_id, v_target in v_transient_targets.items():
-                        v_prev_applied[dev_id] = v_target
-
-                # ── RESTAURAÇÃO: Retorna todos os dispositivos à tensão de MPPT baseline
-                print(f" >>> Restaurando dispositivos para as tensões de MPPT de operação normal...")
-                driver.set_voltage_channel_a_all_and_measure(v_mpp_baseline)
-                for dev_id, state in device_states.items():
-                    state["v_now"] = v_mpp_baseline[dev_id]
-
-                # Salva CSVs e gráficos atualizados para todos os dispositivos
-                for state in device_states.values():
-                    save_plots_and_reports(state)
-
-                print(f" [OK] Análise de Transiente da Hora {current_hour} concluída e dados salvos com sucesso.\n")
-
-                # Reinicia os buffers de janela dos dispositivos após o checkpoint de transiente
-                for state in device_states.values():
-                    state["window_start"] = time.perf_counter()
-                    state["window_t"].clear()
-                    state["window_v"].clear()
-                    state["window_i"].clear()
-                    state["cv_buffer"].clear()
+                    # Reinicia os buffers de janela dos dispositivos após o checkpoint de transiente
+                    for state in device_states.values():
+                        state["window_start"] = time.perf_counter()
+                        state["window_t"].clear()
+                        state["window_v"].clear()
+                        state["window_i"].clear()
+                        state["cv_buffer"].clear()
+                except Exception:
+                    # An error anywhere in the hourly checkpoint (voltage
+                    # excursion, driver call, curve fitting) must not kill
+                    # the whole week-long run — log it, restore baseline
+                    # voltages defensively, and keep going.
+                    logger.error("Hourly transient checkpoint for hour %d failed:\n%s",
+                                  current_hour, traceback.format_exc())
+                    try:
+                        driver.set_voltage_channel_a_all_and_measure(
+                            {dev_id: state["v_now"] for dev_id, state in device_states.items()}
+                        )
+                    except Exception:
+                        logger.error("Failed to restore baseline voltages after checkpoint error:\n%s",
+                                      traceback.format_exc())
 
             # Garante um tempo mínimo de ciclo (evita loop vazio em hardware rápido)
             cycle_dt = time.perf_counter() - cycle_t0
@@ -614,12 +719,17 @@ def main():
 
     except KeyboardInterrupt:
         print("\nExecução interrompida pelo usuário.")
+        logger.info("Interrupted by user (KeyboardInterrupt) at cycle %d.", cycle)
+    except Exception:
+        logger.error("Fatal error, aborting run at cycle %d:\n%s", cycle, traceback.format_exc())
+        raise
     finally:
         print("\nFinalizando e salvando dados finais...")
         for state in device_states.values():
             save_plots_and_reports(state)
         driver.disconnect()
         print("Protocolo finalizado. Dispositivos desconectados.")
+        logger.info("Run finished, devices disconnected.")
 
 
 if __name__ == "__main__":
