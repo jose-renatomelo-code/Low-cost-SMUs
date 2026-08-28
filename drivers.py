@@ -22,7 +22,7 @@ N_SETTLE_CALLS         = 3      # discard calls after constant()
 
 SHUNT_RESISTANCE_OHM = 219.6
 
-V_MAX_V         = 7.0         # square-wave high level  (V)
+V_MAX_V         = 2.0         # square-wave high level  (V)
 V_MIN_V         = 0.0        # square-wave low level   (V)
 CURRENT_LIMIT_A = 0.1         # compliance / source current limit (A) = 100 mA
 # Fixed current-MEASUREMENT range. Auto-range was selecting a µA range and
