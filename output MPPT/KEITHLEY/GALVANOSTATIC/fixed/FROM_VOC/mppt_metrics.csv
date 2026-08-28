@@ -1,2 +1,0 @@
-Instrument,Method,Orientation,Approach,SampleArea(cm²),P_in(mW/cm²),T_total(s),V_MPP(V),J_MPP(mA/cm²),P_MPP(mW),PCE_max(%),N_cycles
-KEITHLEY,fixed,FROM_VOC,GALVANOSTATIC,5,100,60,0.8636302,-2.600000000000001,11.227192600000006,2.245438520000001,30
