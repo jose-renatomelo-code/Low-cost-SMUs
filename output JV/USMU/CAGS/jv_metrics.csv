@@ -1,2 +1,0 @@
-Instrument,ScanRates(V/s),PCE_jv_fwd(%),PCE_jv_rev(%),Voc_jv_fwd(V),Voc_jv_rev(V),Jsc_fwd(mA/cm²),Jsc_rev(mA/cm²),FF_fwd(%),FF_rev(%),HI(%),Rs(ohm),Rsh(ohm)
-USMU,"10, 1",0.0031701577499999994,0.0031574767500000002,,,1.136097,1.13241775,,,-0.4000116396731072,,
